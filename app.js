@@ -3,12 +3,22 @@
   "use strict";
 
   const STORAGE_KEY = "bpi-tracker-v1";
-  const DEVICE_KEY = "bpi-tracker-device";   // per-device only (passcode, sync time) — never synced
+  const DEVICE_KEY = "bpi-tracker-device";   // per-device only (passcode, theme, sync time) — never synced
 
   const DEFAULT_CATEGORIES = [
     "Groceries", "Dining", "Transportation & Gas", "Utilities & Bills",
     "Shopping", "Health & Pharmacy", "Travel", "Entertainment",
     "Subscriptions", "Education", "Home", "Others",
+  ];
+  const CAT_EMOJI = {
+    "Groceries": "🛒", "Dining": "🍽️", "Transportation & Gas": "⛽", "Utilities & Bills": "💡",
+    "Shopping": "🛍️", "Health & Pharmacy": "💊", "Travel": "✈️", "Entertainment": "🎬",
+    "Subscriptions": "📺", "Education": "🎓", "Home": "🏠", "Others": "📦", "Fees & Interest": "🏦",
+  };
+  const EMOJI_HINTS = [
+    [/food|dine|resto|coffee|cafe/i, "☕"], [/grocer|market/i, "🛒"], [/gas|fuel|car|grab|transport/i, "🚗"],
+    [/bill|util|electric|water|internet/i, "💡"], [/health|med|doctor|pharm/i, "💊"], [/kid|baby|school|tuition/i, "🎒"],
+    [/pet|dog|cat/i, "🐾"], [/gift|church|tithe|give|donat/i, "🎁"], [/beauty|salon|spa/i, "💅"], [/travel|hotel|flight/i, "✈️"],
   ];
 
   const defaultSettings = () => ({
@@ -58,6 +68,7 @@
   const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const round2 = (n) => Math.round(n * 100) / 100;
+  const haptic = () => { try { navigator.vibrate && navigator.vibrate(8); } catch { /* ignore */ } };
 
   const pad = (n) => String(n).padStart(2, "0");
   const toISO = (dt) => `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}`;
@@ -66,6 +77,28 @@
   const daysInMonth = (y, m) => new Date(y, m, 0).getDate(); // m is 1-12
   const fmtDate = (dt, opts = { month: "short", day: "numeric", year: "numeric" }) => dt.toLocaleDateString("en-PH", opts);
   const daysBetween = (a, b) => Math.round((b - a) / 86400000);
+
+  // ---------- Icons ----------
+  const ICONS = {
+    home: '<path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/>',
+    list: '<path d="M9 6h12M9 12h12M9 18h12"/><path d="M4 6h.01M4 12h.01M4 18h.01" stroke-width="3"/>',
+    plus: '<path d="M12 5v14M5 12h14" stroke-width="2.6"/>',
+    chart: '<path d="M6 20v-8M12 20V5M18 20v-5M3 20h18"/>',
+    gear: '<path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/>',
+    camera: '<path d="M4 8h3l2-3h6l2 3h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13.5" r="3.5"/>',
+    image: '<rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="9" cy="10" r="2"/><path d="m21 16-5-5-9 9"/>',
+    pen: '<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13.5 6.5 4 4"/>',
+    check: '<circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/>',
+    left: '<path d="m15 18-6-6 6-6"/>',
+    right: '<path d="m9 18 6-6-6-6"/>',
+    search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
+    alert: '<path d="M12 3.5 2.5 20h19z"/><path d="M12 10v4M12 17h.01"/>',
+  };
+  const svg = (name) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name] || ""}</svg>`;
+  $$("[data-icon]").forEach((el) => (el.innerHTML = svg(el.dataset.icon)));
+  ["#cycle-prev", "#stmt-prev"].forEach((s) => ($(s).innerHTML = svg("left")));
+  ["#cycle-next", "#stmt-next"].forEach((s) => ($(s).innerHTML = svg("right")));
+  $(".search-icon").innerHTML = svg("search");
 
   // ---------- Billing cycles ----------
   // A cycle is identified by its statement (cut-off) month: "YYYY-MM".
@@ -98,10 +131,13 @@
     due.setDate(due.getDate() + Number(state.settings.dueDays));
     return { key, start, end, due };
   }
+  const monthName = (key, style = "long") => { const { y, m } = splitKey(key); return new Date(y, m - 1, 1).toLocaleDateString("en-PH", { month: style }); };
   const cycleName = (key) => {
     const { y, m } = splitKey(key);
     return new Date(y, m - 1, 1).toLocaleDateString("en-PH", { month: "long", year: "numeric" }) + " statement";
   };
+  const shortCycle = (key) => monthName(key) + " statement";
+  const rangeText = (key) => { const i = cycleInfo(key); return `${fmtDate(i.start, { month: "short", day: "numeric" })} – ${fmtDate(i.end, { month: "short", day: "numeric" })}`; };
 
   // ---------- Money math ----------
   const isCharge = (t) => t.type === "purchase" || t.type === "fee";
@@ -168,312 +204,348 @@
     return out;
   }
 
+  function amountDueFor(key) {
+    const s = stmt(key);
+    return s && s.totalDue != null && s.totalDue !== "" ? { amount: Number(s.totalDue), fromBpi: true } : { amount: statementBalance(key), fromBpi: false };
+  }
+  function paymentsAfter(key) {
+    const end = toISO(cycleInfo(key).end);
+    const nextEnd = toISO(cycleInfo(addMonths(key, 1)).end);
+    return txs().filter((t) => t.type === "payment" && t.date > end && t.date <= nextEnd).reduce((s, t) => s + Number(t.amount), 0);
+  }
   /** The statement that is currently waiting to be paid (latest closed one). */
   function billToPay() {
     const key = addMonths(cycleOf(todayISO()), -1);
     const info = cycleInfo(key);
-    const s = stmt(key);
-    const amountDue = s && s.totalDue != null && s.totalDue !== "" ? Number(s.totalDue) : statementBalance(key);
-    const end = toISO(info.end);
-    const paid = txs().filter((t) => t.type === "payment" && t.date > end).reduce((sum, t) => sum + Number(t.amount), 0);
-    return { key, info, amountDue, paid, remaining: Math.max(0, amountDue - paid), minDue: s?.minDue };
+    const { amount, fromBpi } = amountDueFor(key);
+    const paid = paymentsAfter(key);
+    return { key, info, amountDue: amount, fromBpi, paid, remaining: Math.max(0, amount - paid), minDue: stmt(key)?.minDue };
   }
+
+  // ---------- Category look ----------
+  function catEmoji(name) {
+    if (CAT_EMOJI[name]) return CAT_EMOJI[name];
+    const hint = EMOJI_HINTS.find(([re]) => re.test(name));
+    return hint ? hint[1] : "🏷️";
+  }
+  /** Fixed slot per category (by its place in the list) — colour follows the category, never its rank. */
+  function catColor(name) {
+    const i = state.settings.categories.indexOf(name);
+    return i >= 0 && i < 8 ? `var(--s${i + 1})` : "var(--s0)";
+  }
+  function txIcon(t) {
+    if (t.type === "payment") return "💳";
+    if (t.type === "refund") return "↩️";
+    if (t.type === "fee") return "🏦";
+    return catEmoji(t.category || "Others");
+  }
+
+  // ---------- Animated numbers ----------
+  function countTo(el, value, format = fmt) {
+    const from = Number(el.dataset.v || 0);
+    el.dataset.v = value;
+    if (matchMedia("(prefers-reduced-motion: reduce)").matches || Math.abs(value - from) < 0.01) { el.textContent = format(value); return; }
+    const t0 = performance.now(), dur = 650;
+    const step = (now) => {
+      const p = Math.min(1, (now - t0) / dur), e = 1 - Math.pow(1 - p, 3);
+      el.textContent = format(from + (value - from) * e);
+      if (p < 1) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  }
+
+  // ---------- Toast ----------
+  let toastTimer = null;
+  function toast(text, actionLabel, action) {
+    const el = $("#toast");
+    $("#toast-text").textContent = text;
+    const btn = $("#toast-action");
+    btn.textContent = actionLabel || "";
+    btn.onclick = () => { el.classList.remove("show"); action && action(); };
+    el.classList.add("show");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => el.classList.remove("show"), actionLabel ? 5000 : 2200);
+  }
+
+  // ---------- Sheets ----------
+  function openSheet(dlg) { if (!dlg.open) dlg.showModal(); }
+  function closeSheet(dlg) {
+    if (!dlg.open || dlg.classList.contains("closing")) return;
+    dlg.classList.add("closing");
+    dlg.addEventListener("animationend", () => { dlg.classList.remove("closing"); dlg.close(); }, { once: true });
+  }
+  $$("dialog.sheet").forEach((dlg) => {
+    dlg.addEventListener("click", (e) => {
+      if (e.target.closest("[data-close]")) { closeSheet(dlg); return; }
+      const r = dlg.getBoundingClientRect();
+      if (e.target === dlg && (e.clientY < r.top || e.clientY > r.bottom || e.clientX < r.left || e.clientX > r.right)) closeSheet(dlg);
+    });
+    dlg.addEventListener("cancel", (e) => { e.preventDefault(); closeSheet(dlg); });
+  });
 
   // ---------- UI state ----------
-  let currentCycle = cycleOf(todayISO());
-  let editingId = null;
+  const thisCycle = () => cycleOf(todayISO());
+  let currentCycle = thisCycle();
+  const filters = { cycle: "", category: "", holder: "" };
+  let selectedTrend = null;
 
-  // ---------- Rendering ----------
-  function renderHeader() {
+  // ---------- HOME ----------
+  function renderHome() {
+    const h = new Date().getHours();
+    $("#greeting").textContent = (h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening") + " ✨";
+
     const s = state.settings;
-    const parts = [s.cardName || "BPI Credit Card"];
-    if (s.last4) parts.push("•••• " + s.last4);
-    parts.push(`Cut-off every ${ordinal(s.cutoffDay)}`);
-    $("#card-sub").textContent = parts.join(" · ");
+    $("#cc-name").textContent = s.cardName || "BPI Credit Card";
+    $("#cc-number").textContent = `••••  ••••  ••••  ${s.last4 || "••••"}`;
+    $("#cc-cutoff").textContent = `Cut-off ${ordinal(s.cutoffDay)}`;
+    const bal = outstanding();
+    const limit = Number(s.creditLimit) || 0;
+    if (limit > 0) {
+      const used = Math.max(0, bal) / limit;
+      $("#cc-label").textContent = "Available credit";
+      countTo($("#cc-amount"), limit - Math.max(0, bal));
+      $("#cc-sub").textContent = `of ${fmt(limit)} · ${Math.round(used * 100)}% used`;
+      $("#cc-meter-fill").style.width = Math.min(100, used * 100) + "%";
+    } else {
+      $("#cc-label").textContent = "Outstanding balance";
+      countTo($("#cc-amount"), Math.max(0, bal));
+      $("#cc-sub").textContent = "Add your credit limit in Settings";
+      $("#cc-meter-fill").style.width = "0";
+    }
+
+    // next payment tile
+    const bill = billToPay();
+    const today = parseISO(todayISO());
+    const days = daysBetween(today, bill.info.due);
+    const badge = $("#due-badge");
+    badge.className = "tile-badge";
+    if (!txs().length || bill.amountDue <= 0.5) {
+      const next = cycleInfo(thisCycle());
+      $("#due-amount").textContent = "₱0.00";
+      $("#due-sub").textContent = `Next due ${fmtDate(next.due, { month: "short", day: "numeric" })}`;
+      badge.textContent = "";
+    } else if (bill.remaining <= 0.5) {
+      $("#due-amount").textContent = "Paid";
+      $("#due-sub").textContent = `${monthName(bill.key)} bill · ${fmt(bill.paid)}`;
+      badge.textContent = "✓"; badge.classList.add("good");
+    } else {
+      countTo($("#due-amount"), bill.remaining);
+      $("#due-sub").textContent = `Due ${fmtDate(bill.info.due, { month: "short", day: "numeric" })}${bill.fromBpi ? "" : " · est."}`;
+      badge.textContent = days < 0 ? "Overdue" : days === 0 ? "Today" : days === 1 ? "Tomorrow" : `${days} days`;
+      if (days < 0) badge.classList.add("crit");
+      else if (days <= Number(s.reminderDays)) badge.classList.add("warn");
+    }
+    countTo($("#out-amount"), bal);
+
+    // alerts (budgets for the running statement)
+    const spent = spendByCategory(thisCycle());
+    const alerts = [];
+    for (const [c, b] of Object.entries(s.budgets || {})) {
+      if (!(Number(b) > 0)) continue;
+      const pct = (spent[c] || 0) / Number(b);
+      if (pct >= 1) alerts.push({ name: c, cls: "crit", text: `${c} is over budget by ${fmt((spent[c] || 0) - b)}` });
+      else if (pct >= 0.8) alerts.push({ name: c, cls: "warn", text: `${c} has used ${Math.round(pct * 100)}% of its budget` });
+    }
+    const shown = alerts.length > 1
+      ? [{ cls: alerts.some((a) => a.cls === "crit") ? "crit" : "warn", text: `${alerts.length} budgets need attention: ${alerts.map((a) => a.name).join(", ")}` }]
+      : alerts;
+    $("#alerts").innerHTML = shown.map((a) =>
+      `<button class="alert ${a.cls}" data-goto="insights"><i>${svg("alert")}</i><span>${esc(a.text)}</span><i class="chev"></i></button>`).join("");
+
+    renderSpending();
+    renderRecent();
   }
+
   function ordinal(n) {
     n = Number(n);
     const s = ["th", "st", "nd", "rd"], v = n % 100;
     return n + (s[(v - 20) % 10] || s[v] || s[0]);
   }
 
-  function renderReminder() {
-    const el = $("#reminder");
-    const bill = billToPay();
-    const today = parseISO(todayISO());
-    const days = daysBetween(today, bill.info.due);
-    const hasActivity = txs().length > 0;
-    el.hidden = !hasActivity || bill.amountDue <= 0.5 || days < -45;
-    if (el.hidden) return;
-    const dueStr = fmtDate(bill.info.due, { weekday: "short", month: "short", day: "numeric" });
-    el.className = "banner";
-    if (bill.remaining <= 0.5) {
-      el.innerHTML = `<strong>✓ ${esc(cycleName(bill.key))} is paid</strong><span class="muted small">${fmt(bill.paid)} paid · was due ${esc(dueStr)}</span>`;
-      return;
+  function renderSpending() {
+    $("#cycle-name").textContent = shortCycle(currentCycle) + (currentCycle === thisCycle() ? "" : ` ${splitKey(currentCycle).y}`);
+    $("#cycle-range").textContent = rangeText(currentCycle) + (currentCycle === thisCycle() ? " · in progress" : "");
+    const byCat = spendByCategory(currentCycle);
+    const total = Object.values(byCat).reduce((a, b) => a + b, 0);
+    countTo($("#spend-total"), total);
+    let entries = Object.entries(byCat).sort((a, b) => b[1] - a[1]);
+    if (entries.length > 6) {
+      const rest = entries.slice(5).reduce((s, [, v]) => s + v, 0);
+      entries = [...entries.slice(0, 5), ["Other", rest]];
     }
-    const when = days > 1 ? `in ${days} days` : days === 1 ? "tomorrow" : days === 0 ? "TODAY" : `${-days} day(s) ago`;
-    if (days < 0) el.classList.add("bad");
-    else if (days <= Number(state.settings.reminderDays)) el.classList.add("warn");
-    const min = bill.minDue ? ` · Minimum ${fmt(Number(bill.minDue))}` : "";
-    const partial = bill.paid > 0 ? ` · ${fmt(bill.paid)} already paid` : "";
-    el.innerHTML = `<strong>${days < 0 ? "Overdue: " : ""}Pay ${fmt(bill.remaining)} ${days < 0 ? "— was due" : "due"} ${esc(dueStr)} (${when})</strong>
-      <span class="muted small">${esc(cycleName(bill.key))}${min}${partial}</span>`;
-  }
-
-  function renderDashboard() {
-    renderReminder();
-    const info = cycleInfo(currentCycle);
-    const thisCycle = cycleOf(todayISO());
-    $("#cycle-title").textContent = cycleName(currentCycle) + (currentCycle === thisCycle ? " (current)" : "");
-    $("#cycle-range").textContent = `${fmtDate(info.start, { month: "short", day: "numeric" })} – ${fmtDate(info.end)}`;
-
-    const { charges, credits } = cycleTotals(currentCycle);
-    $("#stat-cycle").textContent = fmt(charges);
-    $("#stat-cycle-note").textContent = credits > 0 ? `${fmt(credits)} in payments/refunds posted` : "Includes installment amortizations";
-
-    const s = stmt(currentCycle);
-    const due = s && s.totalDue != null && s.totalDue !== "" ? Number(s.totalDue) : statementBalance(currentCycle);
-    $("#stat-due").textContent = fmt(Math.max(0, due));
-    const today = parseISO(todayISO());
-    const days = daysBetween(today, info.due);
-    const dueNote = $("#stat-due-note");
-    dueNote.className = "stat-note";
-    const dueStr = fmtDate(info.due, { month: "short", day: "numeric" });
-    if (today <= info.end) {
-      dueNote.textContent = `Estimate · due ${dueStr} · statement closes in ${daysBetween(today, info.end)} day(s)`;
-    } else if (days > 0) {
-      dueNote.textContent = `Due ${dueStr} · ${days} day(s) left` + (s?.totalDue ? "" : " · estimate");
-      if (days <= Number(state.settings.reminderDays)) dueNote.classList.add("warn");
-    } else if (days === 0) {
-      dueNote.textContent = "Due today!"; dueNote.classList.add("bad");
-    } else {
-      dueNote.textContent = `Was due ${dueStr}`;
-    }
-
-    const bal = outstanding();
-    $("#stat-outstanding").textContent = fmt(bal);
-    const limit = Number(state.settings.creditLimit) || 0;
-    const meter = $("#limit-meter");
-    if (limit > 0) {
-      const used = Math.max(0, bal) / limit;
-      $("#stat-available").textContent = fmt(limit - Math.max(0, bal));
-      $("#stat-limit-note").textContent = `${Math.round(used * 100)}% of ${fmt(limit)} limit used`;
-      meter.style.width = Math.min(100, used * 100) + "%";
-      meter.className = "meter-fill" + (used >= 0.9 ? " bad" : used >= 0.7 ? " warn" : "");
-    } else {
-      $("#stat-available").textContent = "—";
-      $("#stat-limit-note").textContent = "Set your credit limit in Settings";
-      meter.style.width = "0";
-    }
-
-    const byCat = spendByCategory(currentCycle), byHolder = {};
-    for (const t of txs()) {
-      const a = amountInCycle(t, currentCycle);
-      if (a <= 0) continue;
-      const h = t.type === "fee" ? "Bank charges" : (t.cardholder || "—");
-      byHolder[h] = (byHolder[h] || 0) + a;
-    }
-    renderBars("#by-category", byCat);
-    renderBars("#by-holder", byHolder);
-    renderBudgets(byCat);
-    renderRecon();
-    renderTrend();
-  }
-
-  function renderBudgets(byCat) {
-    const budgets = state.settings.budgets || {};
-    const cats = Object.keys(budgets).filter((c) => Number(budgets[c]) > 0);
-    const el = $("#budgets");
-    const alert = $("#budget-alert");
-    if (!cats.length) {
-      el.innerHTML = `<div class="empty">No budgets yet. Set them in Settings → Monthly budgets.</div>`;
-      alert.hidden = true;
-      return;
-    }
-    const over = [], near = [];
-    el.innerHTML = cats.map((c) => {
-      const spent = byCat[c] || 0, budget = Number(budgets[c]);
-      const pct = spent / budget;
-      if (pct >= 1) over.push(c); else if (pct >= 0.8) near.push(c);
-      const cls = pct >= 1 ? "bad" : pct >= 0.8 ? "warn" : "good";
-      const left = budget - spent;
-      return `<div class="bar-row">
-        <span>${esc(c)} <span class="muted small">${left >= 0 ? fmt(left) + " left" : fmt(-left) + " over"}</span></span>
-        <span class="bar-amt">${fmt(spent)} / ${fmt(budget)}</span>
-        <div class="bar-track"><div class="bar-fill ${cls}" style="width:${Math.min(100, pct * 100)}%"></div></div>
-      </div>`;
-    }).join("");
-    const msgs = [];
-    if (over.length) msgs.push(`Over budget: ${over.join(", ")}`);
-    if (near.length) msgs.push(`Almost at budget (80%+): ${near.join(", ")}`);
-    alert.hidden = !msgs.length;
-    alert.className = "banner " + (over.length ? "bad" : "warn");
-    alert.innerHTML = `<strong>${esc(msgs[0] || "")}</strong>${msgs[1] ? `<span class="muted small">${esc(msgs[1])}</span>` : ""}`;
-  }
-
-  function renderRecon() {
-    const f = $("#recon-form");
-    const s = stmt(currentCycle);
-    if (document.activeElement?.form !== f) {
-      f.totalDue.value = s?.totalDue ?? "";
-      f.minDue.value = s?.minDue ?? "";
-    }
-    const tracked = statementBalance(currentCycle);
-    const prev = statementBalance(addMonths(currentCycle, -1));
-    const { charges, credits } = cycleTotals(currentCycle);
-    let rows = `<table>
-      <tr><td>Previous balance (recorded)</td><td>${fmt(prev)}</td></tr>
-      <tr><td>+ Charges &amp; installments</td><td>${fmt(charges)}</td></tr>
-      <tr><td>− Payments &amp; refunds</td><td>${fmt(credits)}</td></tr>
-      <tr class="total"><td>Your recorded balance</td><td>${fmt(tracked)}</td></tr>`;
-    if (s?.totalDue != null && s.totalDue !== "") {
-      const diff = round2(Number(s.totalDue) - tracked);
-      rows += `<tr><td>BPI Total Amount Due</td><td>${fmt(Number(s.totalDue))}</td></tr></table>`;
-      rows += Math.abs(diff) < 1
-        ? `<p class="ok">✓ Matches your BPI statement.</p>`
-        : `<p class="error"><strong>Difference: ${fmt(Math.abs(diff))}</strong> — BPI shows ${diff > 0 ? "more" : "less"} than you recorded. ${diff > 0
-            ? "Look for missing purchases, fees, interest or late charges."
-            : "Look for a duplicate entry, or a payment/refund you haven't recorded."}</p>`;
-    } else {
-      rows += `</table>`;
-    }
-    $("#recon-result").innerHTML = rows;
-  }
-
-  function renderBars(sel, obj) {
-    const el = $(sel);
-    const entries = Object.entries(obj).sort((a, b) => b[1] - a[1]);
-    if (!entries.length) { el.innerHTML = `<div class="empty">No charges on this statement yet.</div>`; return; }
-    const total = entries.reduce((s, [, v]) => s + v, 0);
-    const max = entries[0][1];
-    el.innerHTML = entries.map(([k, v]) => `
-      <div class="bar-row">
-        <span>${esc(k)} <span class="muted small">${Math.round((v / total) * 100)}%</span></span>
-        <span class="bar-amt">${fmt(v)}</span>
-        <div class="bar-track"><div class="bar-fill" style="width:${(v / max) * 100}%"></div></div>
-      </div>`).join("");
-  }
-
-  function renderTrend() {
-    const keys = [];
-    for (let i = 5; i >= 0; i--) keys.push(addMonths(currentCycle, -i));
-    const vals = keys.map((k) => cycleTotals(k).charges);
-    const max = Math.max(...vals, 1);
-    $("#trend").innerHTML = keys.map((k, i) => {
-      const { y, m } = splitKey(k);
-      const label = new Date(y, m - 1, 1).toLocaleDateString("en-PH", { month: "short" });
-      return `<div class="trend-col ${k === currentCycle ? "current" : ""}" title="${esc(cycleName(k))}: ${fmt(vals[i])}">
-        <span class="trend-val">${vals[i] ? fmtShort(vals[i]) : ""}</span>
-        <div class="trend-bar" style="height:${(vals[i] / max) * 100}%"></div>
-        <span>${label}</span>
-      </div>`;
-    }).join("");
+    const color = (c) => (c === "Other" ? "var(--s0)" : catColor(c));
+    $("#segbar").innerHTML = entries.map(([c, v], i) =>
+      `<span style="flex:${v} 1 0;background:${color(c)};animation-delay:${i * 60}ms" title="${esc(c)}: ${fmt(v)}"></span>`).join("");
+    $("#segbar").setAttribute("aria-label", entries.map(([c, v]) => `${c} ${fmt(v)}`).join(", ") || "No spending");
+    $("#cat-list").innerHTML = entries.length
+      ? entries.map(([c, v]) => `<li><button class="cat-row" data-cat="${esc(c)}">
+          <span class="swatch" style="background:${color(c)}"></span>
+          <span class="name">${c === "Other" ? "Other" : catEmoji(c) + " " + esc(c)}</span>
+          <span class="pct">${Math.round((v / total) * 100)}%</span>
+          <span class="amt">${fmt(v)}</span></button></li>`).join("")
+      : `<li class="empty">No charges on this statement yet.</li>`;
   }
 
   function txRow(t) {
     const credit = isCredit(t);
-    const typeLabel = { payment: "Payment", refund: "Refund", fee: "Fee/Interest" }[t.type];
     const meta = [fmtDate(parseISO(t.date), { month: "short", day: "numeric" })];
     if (t.type === "purchase") meta.push(t.category || "Others");
-    if (t.cardholder && t.type === "purchase") meta.push(t.cardholder);
-    if (t.notes) meta.push(t.notes);
-    let tags = "";
-    if (typeLabel) tags += `<span class="tag">${typeLabel}</span>`;
-    if (t.installment) tags += `<span class="tag">${t.installment.months} mos · ${fmt(installmentMonthly(t))}/mo</span>`;
-    if (t.scanned) tags += `<span class="tag">📷</span>`;
-    return `<button class="tx" data-id="${t.id}">
-      <span class="tx-desc">${esc(t.description)}${tags}</span>
-      <span class="tx-amt ${credit ? "credit" : ""}">${credit ? "−" : ""}${fmt(Number(t.amount))}</span>
-      <span class="tx-meta">${esc(meta.join(" · "))}</span>
-    </button>`;
+    else meta.push({ payment: "Payment", refund: "Refund", fee: "Fee / interest" }[t.type]);
+    if (t.cardholder && t.type === "purchase" && state.settings.cardholders.length > 1) meta.push(t.cardholder);
+    const sub = t.installment ? `<small>${fmt(installmentMonthly(t))}/mo × ${t.installment.months}</small>` : t.scanned ? "<small>📷 scanned</small>" : "";
+    return `<li><button class="tx" data-id="${t.id}">
+      <span class="tx-icon" style="${t.type === "purchase" ? `box-shadow: inset 0 0 0 1.5px ${catColor(t.category)}` : ""}">${txIcon(t)}</span>
+      <span class="tx-main"><span class="tx-desc">${esc(t.description)}</span><span class="tx-meta">${esc(meta.join(" · "))}</span></span>
+      <span class="tx-amt ${credit ? "credit" : ""}">${credit ? "+" : ""}${fmt(Number(t.amount))}${sub}</span>
+    </button></li>`;
   }
 
-  function renderTransactions() {
+  function sortTx(list) {
+    return list.sort((a, b) => b.date.localeCompare(a.date) || (b.createdAt || 0) - (a.createdAt || 0));
+  }
+
+  function renderRecent() {
+    const list = sortTx(txs()).slice(0, 4);
+    $("#recent-list").innerHTML = list.length ? list.map(txRow).join("")
+      : `<li class="empty-hero"><strong>No expenses yet</strong>Tap the red + below to scan a receipt or add one.</li>`;
+  }
+
+  // ---------- ACTIVITY ----------
+  function renderActivity() {
+    const s = state.settings;
+    const cycles = [...new Set([thisCycle(), ...txs().map((t) => cycleOf(t.date))])].sort().reverse();
+    if (filters.cycle && !cycles.includes(filters.cycle)) filters.cycle = "";
+    const usedCats = s.categories.filter((c) => txs().some((t) => t.category === c));
+    let chips = `<select class="chip ${filters.cycle ? "on" : ""}" id="cycle-filter" aria-label="Statement">
+        <option value="">All statements</option>${cycles.map((k) => `<option value="${k}" ${k === filters.cycle ? "selected" : ""}>${esc(monthName(k, "short"))} ${splitKey(k).y} statement</option>`).join("")}
+      </select>`;
+    if (s.cardholders.length > 1) chips += s.cardholders.map((h) => `<button class="chip ${filters.holder === h ? "on" : ""}" data-holder="${esc(h)}">${esc(h)}</button>`).join("");
+    chips += usedCats.map((c) => `<button class="chip ${filters.category === c ? "on" : ""}" data-fcat="${esc(c)}">${catEmoji(c)} ${esc(c)}</button>`).join("");
+    $("#filter-chips").innerHTML = chips;
+
     const q = $("#search").value.trim().toLowerCase();
-    const cyc = $("#filter-cycle").value;
-    const cat = $("#filter-category").value;
-    const holder = $("#filter-holder").value;
+    const list = sortTx(txs()
+      .filter((t) => !filters.cycle || cycleOf(t.date) === filters.cycle)
+      .filter((t) => !filters.category || t.category === filters.category)
+      .filter((t) => !filters.holder || t.cardholder === filters.holder)
+      .filter((t) => !q || (t.description + " " + (t.notes || "") + " " + (t.category || "")).toLowerCase().includes(q)));
 
-    const list = txs()
-      .filter((t) => !cyc || cycleOf(t.date) === cyc)
-      .filter((t) => !cat || t.category === cat)
-      .filter((t) => !holder || t.cardholder === holder)
-      .filter((t) => !q || (t.description + " " + (t.notes || "")).toLowerCase().includes(q))
-      .sort((a, b) => b.date.localeCompare(a.date) || (b.createdAt || 0) - (a.createdAt || 0));
-
-    const charges = list.filter(isCharge).reduce((s, t) => s + Number(t.amount), 0);
-    const credits = list.filter(isCredit).reduce((s, t) => s + Number(t.amount), 0);
-    $("#tx-summary").textContent = `${list.length} transaction(s) · Charges ${fmt(charges)} · Payments/refunds ${fmt(credits)}`;
-
+    const charges = list.filter(isCharge).reduce((a, t) => a + Number(t.amount), 0);
+    $("#tx-summary").textContent = list.length ? `${list.length} transaction${list.length > 1 ? "s" : ""} · ${fmt(charges)} in charges` : "";
     if (!list.length) {
-      $("#tx-list").innerHTML = `<div class="empty">No transactions yet. Tap “+ Add” to record your first one.</div>`;
+      $("#tx-groups").innerHTML = txs().length
+        ? `<div class="empty-hero"><strong>Nothing found</strong>Try a different search or filter.</div>`
+        : `<div class="empty-hero"><strong>No transactions yet</strong>Tap + to add your first one.</div>`;
       return;
     }
-    let html = "", lastCycle = null;
-    for (const t of list) {
-      const c = cycleOf(t.date);
-      if (!cyc && c !== lastCycle) { html += `<div class="tx-group">${esc(cycleName(c))}</div>`; lastCycle = c; }
-      html += txRow(t);
+    const groups = new Map();
+    for (const t of list) { const c = cycleOf(t.date); if (!groups.has(c)) groups.set(c, []); groups.get(c).push(t); }
+    $("#tx-groups").innerHTML = [...groups].map(([c, items]) => {
+      const sum = items.filter(isCharge).reduce((a, t) => a + Number(t.amount), 0);
+      return `<div class="group-head"><span>${esc(cycleName(c))}</span><span>${fmt(sum)}</span></div>
+        <ul class="tx-group tx-list">${items.map(txRow).join("")}</ul>`;
+    }).join("");
+  }
+
+  $("#filter-chips").addEventListener("click", (e) => {
+    const h = e.target.closest("[data-holder]"), c = e.target.closest("[data-fcat]");
+    if (h) filters.holder = filters.holder === h.dataset.holder ? "" : h.dataset.holder;
+    else if (c) filters.category = filters.category === c.dataset.fcat ? "" : c.dataset.fcat;
+    else return;
+    haptic();
+    renderActivity();
+  });
+  $("#filter-chips").addEventListener("change", (e) => { if (e.target.id === "cycle-filter") { filters.cycle = e.target.value; renderActivity(); } });
+  $("#search").addEventListener("input", renderActivity);
+
+  // ---------- INSIGHTS ----------
+  function renderBudgets() {
+    const key = currentCycle;
+    $("#budget-cycle").textContent = cycleName(key);
+    const budgets = state.settings.budgets || {};
+    const cats = state.settings.categories.filter((c) => Number(budgets[c]) > 0);
+    if (!cats.length) {
+      $("#budget-summary").innerHTML = "";
+      $("#budget-list").innerHTML = `<li class="empty-hero"><strong>No budgets yet</strong>Set a monthly limit per category.<br /><br /><button class="pill primary" data-goto="settings" data-scroll="budget-inputs">Set budgets</button></li>`;
+      return;
     }
-    $("#tx-list").innerHTML = html;
+    const spent = spendByCategory(key);
+    const totalB = cats.reduce((a, c) => a + Number(budgets[c]), 0);
+    const totalS = cats.reduce((a, c) => a + (spent[c] || 0), 0);
+    $("#budget-summary").innerHTML = `<div><b>${fmt(totalS)}</b><span>Spent</span></div><div><b>${fmt(Math.max(0, totalB - totalS))}</b><span>Left of ${fmt(totalB)}</span></div>`;
+    $("#budget-list").innerHTML = cats.map((c, i) => {
+      const b = Number(budgets[c]), sp = spent[c] || 0, pct = sp / b;
+      const cls = pct >= 1 ? "crit" : pct >= 0.8 ? "warn" : "";
+      const flag = pct >= 1 ? `<span class="flag crit">▲ Over by ${fmt(sp - b)}</span>` : pct >= 0.8 ? `<span class="flag warn">● ${Math.round(pct * 100)}% used</span>` : `<span>${fmt(b - sp)} left</span>`;
+      return `<li class="meter-row">
+        <div class="meter-top"><span class="name">${catEmoji(c)} ${esc(c)}</span><span class="fig">${fmt(sp)} <small>/ ${fmt(b)}</small></span></div>
+        <div class="meter-track"><div class="${cls}" style="width:${Math.min(100, pct * 100)}%;animation-delay:${i * 50}ms"></div></div>
+        <div class="meter-note">${flag}<span>${Math.round(pct * 100)}%</span></div>
+      </li>`;
+    }).join("");
   }
 
   function renderInstallments() {
-    // Count only statements that have already closed (cut-off date passed).
-    const now = addMonths(cycleOf(todayISO()), -1);
-    const list = txs().filter((t) => t.installment && t.type === "purchase")
-      .sort((a, b) => b.date.localeCompare(a.date));
-    if (!list.length) {
-      $("#inst-list").innerHTML = `<div class="empty">No installment purchases. Tick “Installment purchase” when adding a transaction.</div>`;
-      return;
-    }
+    const now = addMonths(thisCycle(), -1); // statements already closed
+    const list = txs().filter((t) => t.installment && t.type === "purchase").sort((a, b) => b.date.localeCompare(a.date));
     const active = list.filter((t) => installmentBilled(t, now) < t.installment.months);
     const done = list.filter((t) => installmentBilled(t, now) >= t.installment.months);
-    const monthlyTotal = active.reduce((s, t) => s + installmentMonthly(t), 0);
-    const row = (t) => {
-      const months = Number(t.installment.months);
-      const billed = installmentBilled(t, now);
+    countTo($("#inst-monthly"), active.reduce((s, t) => s + installmentMonthly(t), 0));
+    $("#inst-count").textContent = active.length ? `${active.length} active installment${active.length > 1 ? "s" : ""}` : "No active installments";
+    const row = (t, isDone) => {
+      const months = Number(t.installment.months), billed = installmentBilled(t, now);
       const remaining = installmentMonthly(t) * (months - billed);
       const lastKey = addMonths(cycleOf(t.date), months - 1);
-      return `<button class="tx" data-id="${t.id}">
-        <span class="tx-desc">${esc(t.description)}</span>
-        <span class="tx-amt">${fmt(installmentMonthly(t))}/mo</span>
-        <span class="tx-meta">${billed}/${months} billed · ${fmt(remaining)} remaining · last on ${esc(cycleName(lastKey))}</span>
-        <span class="tx-meta" style="text-align:right">${fmt(installmentTotal(t))} total</span>
-        <div class="progress"><div style="width:${(billed / months) * 100}%"></div></div>
-      </button>`;
+      return `<li><button class="inst ${isDone ? "done" : ""}" data-id="${t.id}">
+        <div class="inst-top"><strong>${catEmoji(t.category)} ${esc(t.description)}</strong><span class="amt">${fmt(installmentMonthly(t))}<small class="muted">/mo</small></span></div>
+        <div class="inst-sub"><span>${billed} of ${months} billed · ${fmt(remaining)} left</span><span>ends ${esc(monthName(lastKey, "short"))} ${splitKey(lastKey).y}</span></div>
+        <div class="inst-track"><div style="width:${(billed / months) * 100}%"></div></div>
+      </button></li>`;
     };
-    let html = `<div class="panel"><strong>${fmt(monthlyTotal)}</strong> <span class="muted">billed monthly across ${active.length} active installment(s)</span></div>`;
-    if (active.length) html += `<div class="tx-group">Active</div>` + active.map(row).join("");
-    if (done.length) html += `<div class="tx-group">Completed</div>` + done.map(row).join("");
-    $("#inst-list").innerHTML = html;
+    $("#inst-list").innerHTML = list.length
+      ? active.map((t) => row(t, false)).join("") + done.map((t) => row(t, true)).join("")
+      : `<li class="empty-hero"><strong>No installments</strong>Turn on “Installment” when adding a purchase (e.g. BPI Real 0%).</li>`;
   }
 
-  function fillSelect(sel, values) {
-    const el = $(sel);
-    const prev = el.value;
-    el.innerHTML = el.options[0].outerHTML + values.map((v) => `<option value="${esc(v)}">${esc(v)}</option>`).join("");
-    if ([...el.options].some((o) => o.value === prev)) el.value = prev;
+  function renderTrends() {
+    const end = thisCycle();
+    const keys = [];
+    for (let i = 5; i >= 0; i--) keys.push(addMonths(end, -i));
+    const vals = keys.map((k) => cycleTotals(k).charges);
+    const max = Math.max(...vals, 1);
+    if (!keys.includes(selectedTrend)) selectedTrend = end;
+    $("#trend").innerHTML = keys.map((k, i) => `
+      <button class="col ${k === end ? "current" : ""} ${k === selectedTrend ? "sel" : ""}" data-key="${k}" aria-label="${esc(cycleName(k))}: ${fmt(vals[i])}">
+        <span class="val">${fmtShort(vals[i])}</span>
+        <span class="bar-wrap"><span class="bar" style="height:${Math.max(1, (vals[i] / max) * 100)}%;animation-delay:${i * 60}ms"></span></span>
+        <span class="lbl">${esc(monthName(k, "short"))}</span>
+      </button>`).join("");
+    const closed = vals.slice(0, 5).filter((v) => v > 0);
+    const avg = closed.length ? closed.reduce((a, b) => a + b, 0) / closed.length : 0;
+    const selVal = vals[keys.indexOf(selectedTrend)];
+    $("#trend-foot").innerHTML = `<span>${esc(shortCycle(selectedTrend))}: <b>${fmt(selVal)}</b></span><span>Avg ${fmt(avg)}</span>`;
   }
+  $("#trend").addEventListener("click", (e) => {
+    const col = e.target.closest(".col");
+    if (!col) return;
+    selectedTrend = col.dataset.key;
+    haptic();
+    renderTrends();
+  });
 
-  function renderFilters() {
-    const s = state.settings;
-    fillSelect("#filter-category", s.categories);
-    fillSelect("#filter-holder", s.cardholders);
-    const keys = new Set(txs().map((t) => cycleOf(t.date)));
-    keys.add(cycleOf(todayISO()));
-    const sorted = [...keys].sort().reverse();
-    const el = $("#filter-cycle");
-    const prev = el.value;
-    el.innerHTML = `<option value="">All statements</option>` +
-      sorted.map((k) => `<option value="${k}">${esc(cycleName(k))}</option>`).join("");
-    el.value = sorted.includes(prev) ? prev : "";
-  }
+  $("#insight-tabs").addEventListener("click", (e) => {
+    const b = e.target.closest("button");
+    if (!b) return;
+    haptic();
+    $$("#insight-tabs button").forEach((x) => x.classList.toggle("active", x === b));
+    $$(".pane").forEach((p) => p.classList.toggle("active", p.id === "pane-" + b.dataset.pane));
+  });
 
+  // ---------- SETTINGS ----------
   function renderBudgetInputs(categories) {
     const budgets = state.settings.budgets || {};
     $("#budget-inputs").innerHTML = categories.map((c) => `
-      <label>${esc(c)}
+      <label class="row"><span>${catEmoji(c)} ${esc(c)}</span>
         <input type="number" min="0" step="100" inputmode="decimal" data-budget="${esc(c)}" value="${budgets[c] ? esc(budgets[c]) : ""}" placeholder="—" />
       </label>`).join("");
   }
@@ -491,20 +563,363 @@
     f.categories.value = s.categories.join(", ");
     renderBudgetInputs(s.categories);
     renderSyncPanel();
+    $$("#theme-seg button").forEach((b) => b.classList.toggle("on", b.dataset.themeOpt === (device.theme || "system")));
   }
 
-  function renderAll() {
-    renderHeader();
-    renderFilters();
-    renderDashboard();
-    renderTransactions();
-    renderInstallments();
-    if ($("#view-settings").classList.contains("active") && !$("#view-settings").contains(document.activeElement)) renderSettings();
+  const splitList = (s) => s.split(",").map((x) => x.trim()).filter(Boolean);
+
+  function saveSettingsFromForm() {
+    const f = $("#settings-form");
+    const categories = splitList(f.categories.value).length ? splitList(f.categories.value) : DEFAULT_CATEGORIES.slice();
+    const budgets = {};
+    $$("#budget-inputs [data-budget]").forEach((i) => {
+      if (Number(i.value) > 0 && categories.includes(i.dataset.budget)) budgets[i.dataset.budget] = round2(Number(i.value));
+    });
+    state.settings = {
+      cardName: f.cardName.value.trim() || "BPI Credit Card",
+      last4: f.last4.value.replace(/\D/g, "").slice(0, 4),
+      creditLimit: Number(f.creditLimit.value) || 0,
+      cutoffDay: Math.min(31, Math.max(1, Number(f.cutoffDay.value) || 15)),
+      dueDays: Math.max(1, Number(f.dueDays.value) || 20),
+      reminderDays: Math.max(0, Number(f.reminderDays.value) || 0),
+      cardholders: splitList(f.cardholders.value).length ? splitList(f.cardholders.value) : ["Principal"],
+      categories,
+      budgets,
+      updatedAt: Date.now(),
+    };
+    save();
+    renderAll();
+    toast("Saved ✓");
   }
+  $("#settings-form").addEventListener("change", (e) => {
+    if (e.target.name === "categories") renderBudgetInputs(splitList(e.target.value));
+    saveSettingsFromForm();
+  });
+  $("#settings-form").addEventListener("submit", (e) => e.preventDefault());
+
+  function applyTheme() {
+    const t = device.theme || "system";
+    if (t === "system") delete document.documentElement.dataset.theme;
+    else document.documentElement.dataset.theme = t;
+  }
+  $("#theme-seg").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-theme-opt]");
+    if (!b) return;
+    device.theme = b.dataset.themeOpt;
+    saveDevice();
+    applyTheme();
+    renderSettings();
+  });
+
+  // ---------- Navigation ----------
+  function goTo(view, opts = {}) {
+    $$(".tab").forEach((t) => t.classList.toggle("active", t.dataset.view === view));
+    $$(".view").forEach((v) => v.classList.toggle("active", v.id === "view-" + view));
+    if (view === "settings") renderSettings();
+    if (view === "activity") renderActivity();
+    window.scrollTo({ top: 0 });
+    if (opts.scroll) setTimeout(() => document.getElementById(opts.scroll)?.scrollIntoView({ behavior: "smooth", block: "center" }), 80);
+  }
+  $$(".tab").forEach((tab) => tab.addEventListener("click", () => { haptic(); goTo(tab.dataset.view); }));
+  document.addEventListener("click", (e) => {
+    const g = e.target.closest("[data-goto]");
+    if (g) { goTo(g.dataset.goto, { scroll: g.dataset.scroll }); return; }
+    const row = e.target.closest(".tx, .inst");
+    if (row) { const t = txs().find((x) => x.id === row.dataset.id); if (t) openTx(t); return; }
+    const cat = e.target.closest(".cat-row");
+    if (cat) {
+      filters.cycle = currentCycle;
+      filters.category = cat.dataset.cat === "Other" ? "" : cat.dataset.cat;
+      filters.holder = "";
+      $("#search").value = cat.dataset.cat === "Fees & Interest" ? "fee" : "";
+      goTo("activity");
+    }
+  });
+
+  $("#cycle-prev").addEventListener("click", () => { currentCycle = addMonths(currentCycle, -1); haptic(); renderSpending(); renderBudgets(); });
+  $("#cycle-next").addEventListener("click", () => { currentCycle = addMonths(currentCycle, 1); haptic(); renderSpending(); renderBudgets(); });
+  $("#cycle-btn").addEventListener("click", () => openStatement(currentCycle));
+  $("#tile-due").addEventListener("click", () => openStatement(txs().length ? billToPay().key : thisCycle()));
+  $("#tile-outstanding").addEventListener("click", () => openStatement(thisCycle()));
+
+  // ---------- Statement sheet ----------
+  let stmtKey = null;
+  function openStatement(key) {
+    stmtKey = key;
+    renderStatement();
+    openSheet($("#stmt-sheet"));
+  }
+  function renderStatement() {
+    const key = stmtKey, info = cycleInfo(key), s = stmt(key);
+    const today = parseISO(todayISO());
+    $("#stmt-title").textContent = cycleName(key);
+    $("#stmt-period").textContent = `${rangeText(key)}, ${info.end.getFullYear()} · due ${fmtDate(info.due, { month: "short", day: "numeric" })}`;
+    const { amount, fromBpi } = amountDueFor(key);
+    const paid = paymentsAfter(key);
+    $("#stmt-due-label").textContent = fromBpi ? "Amount due (from BPI)" : today <= info.end ? "Running total" : "Estimated amount due";
+    countTo($("#stmt-due"), Math.max(0, amount));
+    const chip = $("#stmt-status");
+    chip.className = "status-chip";
+    const days = daysBetween(today, info.due);
+    if (today <= info.end) chip.textContent = `Open · closes in ${daysBetween(today, info.end)} days`;
+    else if (amount <= 0.5 || paid >= amount - 0.5) { chip.textContent = "✓ Paid"; chip.classList.add("good"); }
+    else if (days < 0) { chip.textContent = `▲ Overdue · ${fmt(amount - paid)} unpaid`; chip.classList.add("crit"); }
+    else { chip.textContent = `${days === 0 ? "Due today" : `Due in ${days} days`}${paid > 0 ? ` · ${fmt(paid)} paid` : ""}`; if (days <= Number(state.settings.reminderDays)) chip.classList.add("warn"); }
+
+    const { charges, credits } = cycleTotals(key);
+    const recorded = statementBalance(key);
+    $("#stmt-prev-bal").textContent = fmt(statementBalance(addMonths(key, -1)));
+    $("#stmt-charges").textContent = "+" + fmt(charges);
+    $("#stmt-credits").textContent = "−" + fmt(credits);
+    $("#stmt-recorded").textContent = fmt(recorded);
+
+    const f = $("#recon-form");
+    if (!f.contains(document.activeElement)) {
+      f.totalDue.value = s?.totalDue ?? "";
+      f.minDue.value = s?.minDue ?? "";
+    }
+    const res = $("#recon-result");
+    res.className = "recon-result";
+    if (s?.totalDue != null && s.totalDue !== "") {
+      const diff = round2(Number(s.totalDue) - recorded);
+      if (Math.abs(diff) < 1) { res.classList.add("good"); res.innerHTML = `<i>${svg("check")}</i><span><b>Matches your BPI statement.</b> Everything is accounted for.</span>`; }
+      else {
+        res.classList.add("crit");
+        res.innerHTML = `<i>${svg("alert")}</i><span><b>Off by ${fmt(Math.abs(diff))}.</b> BPI shows ${diff > 0 ? "more" : "less"} than you recorded — ${diff > 0
+          ? "look for missing purchases, fees, interest or late charges." : "look for a duplicate entry or an unrecorded payment/refund."}</span>`;
+      }
+    } else res.innerHTML = "";
+  }
+  $("#stmt-prev").addEventListener("click", () => { stmtKey = addMonths(stmtKey, -1); haptic(); renderStatement(); });
+  $("#stmt-next").addEventListener("click", () => { stmtKey = addMonths(stmtKey, 1); haptic(); renderStatement(); });
+  $("#recon-form").addEventListener("change", (e) => {
+    const f = e.currentTarget;
+    const totalDue = f.totalDue.value === "" ? null : round2(Number(f.totalDue.value));
+    const minDue = f.minDue.value === "" ? null : round2(Number(f.minDue.value));
+    state.statements[stmtKey] = totalDue == null && minDue == null
+      ? { deleted: true, updatedAt: Date.now() }
+      : { totalDue, minDue, updatedAt: Date.now() };
+    save();
+    renderStatement();
+    renderHome();
+  });
+  $("#recon-form").addEventListener("submit", (e) => { e.preventDefault(); document.activeElement.blur(); });
+
+  // ---------- Add flow ----------
+  const addSheet = $("#add-sheet");
+  $("#fab").addEventListener("click", () => {
+    haptic();
+    if (addSheet.open) { closeSheet(addSheet); return; }
+    openSheet(addSheet);
+    $("#fab").classList.add("open");
+  });
+  addSheet.addEventListener("close", () => $("#fab").classList.remove("open"));
+  addSheet.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-new]");
+    if (!b) return;
+    addSheet.close();
+    openTx(null, b.dataset.new);
+  });
+
+  // ---------- Transaction sheet ----------
+  const txSheet = $("#tx-sheet");
+  const form = $("#tx-form");
+  let editingId = null;
+  let scannedThisEntry = false;
+
+  function renderCatChips(selected) {
+    form.category.value = selected;
+    $("#cat-chips").innerHTML = state.settings.categories.map((c) =>
+      `<button type="button" class="cat-chip ${c === selected ? "on" : ""}" data-c="${esc(c)}"><b>${catEmoji(c)}</b>${esc(c)}</button>`).join("");
+    const on = $("#cat-chips .on");
+    if (on) on.scrollIntoView({ block: "nearest", inline: "center" });
+  }
+  $("#cat-chips").addEventListener("click", (e) => {
+    const b = e.target.closest(".cat-chip");
+    if (!b) return;
+    haptic();
+    form.category.value = b.dataset.c;
+    $$("#cat-chips .cat-chip").forEach((x) => x.classList.toggle("on", x === b));
+  });
+  function renderHolderSeg(selected) {
+    form.cardholder.value = selected;
+    $("#holder-seg").innerHTML = state.settings.cardholders.map((h) =>
+      `<button type="button" class="${h === selected ? "on" : ""}" data-h="${esc(h)}">${esc(h)}</button>`).join("");
+  }
+  $("#holder-seg").addEventListener("click", (e) => {
+    const b = e.target.closest("button");
+    if (!b) return;
+    form.cardholder.value = b.dataset.h;
+    $$("#holder-seg button").forEach((x) => x.classList.toggle("on", x === b));
+  });
+
+  function syncFormMode() {
+    const type = form.type.value;
+    form.classList.toggle("hide-purchase", type !== "purchase");
+    $(".installment-fields").classList.toggle("on", form.isInstallment.checked);
+    $("#tx-title").textContent = (editingId ? "Edit " : "New ") + { purchase: "expense", payment: "payment", refund: "refund", fee: "fee" }[type];
+    const amt = Number(form.amount.value) || 0;
+    const months = Number(form.months.value);
+    const total = amt * (1 + ((Number(form.rate.value) || 0) / 100) * months);
+    $("#installment-preview").textContent = amt && form.isInstallment.checked ? `${fmt(total / months)} a month for ${months} months · ${fmt(total)} total` : "";
+  }
+  function fitAmount() {
+    const len = Math.max(4, (form.amount.value || "0.00").length);
+    form.amount.style.width = `${len * 0.62 + 0.3}em`;
+  }
+  form.addEventListener("input", () => { syncFormMode(); fitAmount(); });
+  form.addEventListener("change", syncFormMode);
+
+  function openTx(t = null, type = "purchase") {
+    editingId = t ? t.id : null;
+    scannedThisEntry = false;
+    const s = state.settings;
+    form.reset();
+    $("#tx-error").textContent = "";
+    $("#scan-banner").hidden = true;
+    txSheet.classList.remove("scanning");
+    const descs = [...new Set(txs().map((x) => x.description))].slice(0, 200);
+    $("#desc-suggestions").innerHTML = descs.map((d) => `<option value="${esc(d)}">`).join("");
+    form.type.value = t ? t.type : type;
+    form.date.value = t ? t.date : todayISO();
+    form.amount.value = t ? t.amount : "";
+    form.description.value = t ? t.description : type === "payment" ? "Payment – BPI" : "";
+    renderCatChips(t?.category || (s.categories.includes(device.lastCategory) ? device.lastCategory : s.categories[0]));
+    const holder = t?.cardholder || (s.cardholders.includes(device.cardholder) ? device.cardholder : s.cardholders[0]);
+    renderHolderSeg(holder);
+    form.notes.value = t?.notes || "";
+    form.isInstallment.checked = !!t?.installment;
+    form.months.value = String(t?.installment?.months || 12);
+    form.rate.value = t?.installment?.rate ?? 0;
+    $("#tx-delete").hidden = !t;
+    syncFormMode();
+    fitAmount();
+    openSheet(txSheet);
+  }
+
+  // Auto-pick category when a known description is typed.
+  form.description.addEventListener("change", () => {
+    if (editingId) return;
+    const match = txs().find((x) => x.description.toLowerCase() === form.description.value.trim().toLowerCase());
+    if (match?.category) renderCatChips(match.category);
+  });
+
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const amount = round2(Number(form.amount.value));
+    const description = form.description.value.trim();
+    const err = !(amount > 0) ? "Enter an amount." : !description ? "Add a short description." : !form.date.value ? "Pick a date." : "";
+    if (err) { $("#tx-error").textContent = err; return; }
+    const type = form.type.value;
+    const existing = editingId ? state.transactions.find((x) => x.id === editingId) : null;
+    const tx = {
+      id: editingId || uid(),
+      type,
+      date: form.date.value,
+      amount,
+      description,
+      category: type === "purchase" ? form.category.value : "",
+      cardholder: type === "purchase" ? form.cardholder.value : "",
+      notes: form.notes.value.trim(),
+      installment: type === "purchase" && form.isInstallment.checked
+        ? { months: Number(form.months.value), rate: Number(form.rate.value) || 0 }
+        : null,
+      createdAt: existing?.createdAt || Date.now(),
+      updatedAt: Date.now(),
+    };
+    if (existing?.scanned || scannedThisEntry) tx.scanned = true;
+    if (type === "purchase") { device.cardholder = tx.cardholder; device.lastCategory = tx.category; saveDevice(); }
+    if (existing) state.transactions[state.transactions.indexOf(existing)] = tx;
+    else state.transactions.push(tx);
+    save();
+    haptic();
+    closeSheet(txSheet);
+    renderAll();
+    toast(existing ? "Changes saved" : `${fmt(amount)} added ✓`);
+  });
+
+  $("#tx-delete").addEventListener("click", () => {
+    if (!editingId) return;
+    const i = state.transactions.findIndex((x) => x.id === editingId);
+    const before = state.transactions[i];
+    state.transactions[i] = { id: editingId, deleted: true, updatedAt: Date.now() };
+    save();
+    closeSheet(txSheet);
+    renderAll();
+    toast("Transaction deleted", "Undo", () => {
+      const j = state.transactions.findIndex((x) => x.id === before.id);
+      state.transactions[j] = { ...before, updatedAt: Date.now() };
+      save();
+      renderAll();
+    });
+  });
+
+  // ---------- Receipt scanning ----------
+  function resizeImage(file, maxSide = 1600) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      const url = URL.createObjectURL(file);
+      img.onload = () => {
+        const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.round(img.width * scale);
+        canvas.height = Math.round(img.height * scale);
+        canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+        URL.revokeObjectURL(url);
+        resolve(canvas.toDataURL("image/jpeg", 0.85).split(",")[1]);
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("Couldn't open that photo.")); };
+      img.src = url;
+    });
+  }
+
+  function scanBanner(text, cls = "") {
+    const b = $("#scan-banner");
+    b.hidden = false;
+    b.className = "scan-banner " + cls;
+    $("#scan-text").textContent = text;
+  }
+
+  async function onReceipt(e) {
+    const file = e.target.files[0];
+    e.target.value = "";
+    if (!file) return;
+    addSheet.close();
+    openTx(null, "purchase");
+    if (!device.passcode) {
+      scanBanner("Scanning needs the household passcode — connect in Settings. You can type it in for now.", "err");
+      return;
+    }
+    scanBanner("Reading your receipt…");
+    txSheet.classList.add("scanning");
+    try {
+      const image = await resizeImage(file);
+      const r = await api("/api/scan", {
+        method: "POST",
+        body: JSON.stringify({ image, categories: state.settings.categories, today: todayISO() }),
+      });
+      if (r.date) form.date.value = r.date;
+      if (r.amount > 0) { form.amount.value = round2(r.amount); fitAmount(); }
+      if (r.merchant) form.description.value = r.merchant;
+      if (r.category && state.settings.categories.includes(r.category)) renderCatChips(r.category);
+      if (r.notes) form.notes.value = r.notes;
+      scannedThisEntry = true;
+      syncFormMode();
+      haptic();
+      const missing = [!r.date && "date", !(r.amount > 0) && "amount"].filter(Boolean);
+      scanBanner(missing.length ? `Couldn't read the ${missing.join(" or ")} — please fill it in.` : "✓ Filled in from your receipt. Check, then Save.", missing.length ? "err" : "done");
+    } catch (err) {
+      scanBanner(err.status ? err.message : "Couldn't reach the scanner. Check your connection.", "err");
+    } finally {
+      txSheet.classList.remove("scanning");
+    }
+  }
+  $("#scan-camera").addEventListener("change", onReceipt);
+  $("#scan-file").addEventListener("change", onReceipt);
 
   // ---------- Household sync ----------
   let syncTimer = null, syncing = false, syncAgain = false;
-  const syncState = { status: "", error: "" };
+  const syncState = { error: "" };
 
   function scheduleSync() {
     if (!device.passcode) return;
@@ -527,11 +942,19 @@
     return body;
   }
 
+  function setSyncDot(cls) {
+    const dot = $("#sync-dot");
+    dot.hidden = !device.passcode;
+    dot.className = "sync-dot " + (cls || "");
+    dot.title = cls === "bad" ? syncState.error : cls === "busy" ? "Syncing…" : "Synced";
+  }
+  $("#sync-dot").addEventListener("click", () => goTo("settings"));
+
   async function syncNow() {
     if (!device.passcode) return;
     if (syncing) { syncAgain = true; return; }
     syncing = true;
-    setSyncPill("Syncing…");
+    setSyncDot("busy");
     try {
       const sent = JSON.stringify(state);
       const merged = normalize(await api("/api/data", { method: "POST", body: sent }));
@@ -542,23 +965,16 @@
       device.lastSyncAt = Date.now();
       saveDevice();
       syncState.error = "";
-      setSyncPill("✓ Synced");
+      setSyncDot("");
       if (changed) renderAll();
     } catch (err) {
       syncState.error = err.status === 401 ? "Wrong passcode" : err.status ? err.message : "Offline — will sync later";
-      setSyncPill("⚠ " + (err.status === 401 ? "Wrong passcode" : err.status ? "Sync error" : "Offline"), true);
+      setSyncDot("bad");
     } finally {
       syncing = false;
       renderSyncPanel();
       if (syncAgain) { syncAgain = false; scheduleSync(); }
     }
-  }
-
-  function setSyncPill(text, bad = false) {
-    const pill = $("#sync-pill");
-    pill.hidden = !device.passcode;
-    pill.textContent = text;
-    pill.classList.toggle("bad", bad);
   }
 
   function renderSyncPanel() {
@@ -567,7 +983,7 @@
     $("#sync-form").hidden = on;
     if (on) {
       const last = device.lastSyncAt ? new Date(device.lastSyncAt).toLocaleString("en-PH", { dateStyle: "medium", timeStyle: "short" }) : "never";
-      $("#sync-status").textContent = syncState.error ? `· ${syncState.error}` : `· Last synced ${last}`;
+      $("#sync-status").textContent = syncState.error || `Last synced ${last}`;
     }
   }
 
@@ -585,255 +1001,25 @@
       await syncNow();
       renderAll();
       renderSettings();
+      toast("Connected ✓");
     } catch (err) {
       device.passcode = prev;
       $("#sync-error").textContent = err.status ? err.message : "Can't reach the server. Sync only works on the Vercel site.";
     }
   });
-  $("#sync-now").addEventListener("click", syncNow);
+  $("#sync-now").addEventListener("click", async () => { await syncNow(); toast(syncState.error || "Synced ✓"); });
   $("#sync-disconnect").addEventListener("click", () => {
-    if (!confirm("Disconnect this device? Your data stays on this phone but will stop syncing.")) return;
-    device = {};
+    if (!confirm("Disconnect this phone? Your data stays here but stops syncing.")) return;
+    device = { theme: device.theme };
     saveDevice();
-    setSyncPill("");
+    setSyncDot();
     renderSyncPanel();
   });
-  document.addEventListener("visibilitychange", () => { if (!document.hidden) syncNow(); });
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) { syncNow(); renderHome(); } });
   window.addEventListener("online", syncNow);
   setInterval(() => { if (!document.hidden) syncNow(); }, 60000);
 
-  // ---------- Tabs ----------
-  $$(".tab").forEach((tab) => tab.addEventListener("click", () => {
-    $$(".tab").forEach((t) => t.classList.toggle("active", t === tab));
-    $$(".view").forEach((v) => v.classList.toggle("active", v.id === "view-" + tab.dataset.view));
-    if (tab.dataset.view === "settings") renderSettings();
-  }));
-
-  $("#cycle-prev").addEventListener("click", () => { currentCycle = addMonths(currentCycle, -1); renderDashboard(); });
-  $("#cycle-next").addEventListener("click", () => { currentCycle = addMonths(currentCycle, 1); renderDashboard(); });
-  ["#search", "#filter-cycle", "#filter-category", "#filter-holder"].forEach((s) =>
-    $(s).addEventListener("input", renderTransactions));
-
-  // ---------- Statement reconciliation ----------
-  $("#recon-form").addEventListener("submit", (e) => {
-    e.preventDefault();
-    const f = e.target;
-    const totalDue = f.totalDue.value === "" ? null : round2(Number(f.totalDue.value));
-    const minDue = f.minDue.value === "" ? null : round2(Number(f.minDue.value));
-    state.statements[currentCycle] = totalDue == null && minDue == null
-      ? { deleted: true, updatedAt: Date.now() }
-      : { totalDue, minDue, updatedAt: Date.now() };
-    save();
-    f.querySelector("button").blur();
-    renderDashboard();
-  });
-
-  // ---------- Add / edit dialog ----------
-  const dialog = $("#tx-dialog");
-  const form = $("#tx-form");
-
-  function syncFormMode() {
-    const type = form.type.value;
-    form.classList.toggle("hide-purchase", type !== "purchase");
-    $(".installment-box").classList.toggle("on", form.isInstallment.checked);
-    const amt = Number(form.amount.value) || 0;
-    const months = Number(form.months.value);
-    const rate = Number(form.rate.value) || 0;
-    const total = amt * (1 + (rate / 100) * months);
-    $("#installment-preview").textContent = amt
-      ? `${fmt(total / months)} per month × ${months} = ${fmt(total)} total`
-      : "";
-  }
-  form.addEventListener("input", syncFormMode);
-
-  let scannedThisEntry = false;
-
-  function openDialog(t = null) {
-    editingId = t ? t.id : null;
-    scannedThisEntry = false;
-    const s = state.settings;
-    form.category.innerHTML = s.categories.map((c) => `<option>${esc(c)}</option>`).join("");
-    form.cardholder.innerHTML = s.cardholders.map((c) => `<option>${esc(c)}</option>`).join("");
-    const descs = [...new Set(txs().map((x) => x.description))].slice(0, 200);
-    $("#desc-suggestions").innerHTML = descs.map((d) => `<option value="${esc(d)}">`).join("");
-
-    $("#tx-dialog-title").textContent = t ? "Edit transaction" : "Add transaction";
-    $("#tx-delete").hidden = !t;
-    $("#scan-box").hidden = !!t;
-    $("#scan-status").textContent = "Or fill in the details yourself below.";
-    $("#scan-status").className = "muted small";
-    form.reset();
-    form.type.value = t ? t.type : "purchase";
-    form.date.value = t ? t.date : todayISO();
-    form.amount.value = t ? t.amount : "";
-    form.description.value = t ? t.description : "";
-    if (t?.category) form.category.value = t.category;
-    if (t?.cardholder) form.cardholder.value = t.cardholder;
-    if (!t && device.cardholder && s.cardholders.includes(device.cardholder)) form.cardholder.value = device.cardholder;
-    form.notes.value = t?.notes || "";
-    form.isInstallment.checked = !!t?.installment;
-    form.months.value = String(t?.installment?.months || 12);
-    form.rate.value = t?.installment?.rate ?? 0;
-    syncFormMode();
-    dialog.showModal();
-  }
-
-  // Auto-pick category when a known description is typed.
-  form.description.addEventListener("change", () => {
-    if (editingId) return;
-    const match = txs().find((x) => x.description.toLowerCase() === form.description.value.trim().toLowerCase());
-    if (match?.category) form.category.value = match.category;
-  });
-
-  $("#add-btn").addEventListener("click", () => openDialog());
-  $("#tx-cancel").addEventListener("click", () => dialog.close());
-  $("#tx-list").addEventListener("click", onRowClick);
-  $("#inst-list").addEventListener("click", onRowClick);
-  function onRowClick(e) {
-    const row = e.target.closest(".tx");
-    if (!row) return;
-    const t = txs().find((x) => x.id === row.dataset.id);
-    if (t) openDialog(t);
-  }
-
-  form.addEventListener("submit", (e) => {
-    e.preventDefault();
-    const type = form.type.value;
-    const existing = editingId ? state.transactions.find((x) => x.id === editingId) : null;
-    const tx = {
-      id: editingId || uid(),
-      type,
-      date: form.date.value,
-      amount: round2(Number(form.amount.value)),
-      description: form.description.value.trim(),
-      category: type === "purchase" ? form.category.value : "",
-      cardholder: type === "purchase" ? form.cardholder.value : "",
-      notes: form.notes.value.trim(),
-      installment: type === "purchase" && form.isInstallment.checked
-        ? { months: Number(form.months.value), rate: Number(form.rate.value) || 0 }
-        : null,
-      createdAt: existing?.createdAt || Date.now(),
-      updatedAt: Date.now(),
-    };
-    if (existing?.scanned || scannedThisEntry) tx.scanned = true;
-    if (type === "purchase") { device.cardholder = tx.cardholder; saveDevice(); }
-    if (existing) state.transactions[state.transactions.indexOf(existing)] = tx;
-    else state.transactions.push(tx);
-    save();
-    dialog.close();
-    renderAll();
-  });
-
-  $("#tx-delete").addEventListener("click", () => {
-    if (!editingId || !confirm("Delete this transaction?")) return;
-    const i = state.transactions.findIndex((x) => x.id === editingId);
-    state.transactions[i] = { id: editingId, deleted: true, updatedAt: Date.now() };
-    save();
-    dialog.close();
-    renderAll();
-  });
-
-  // ---------- Receipt scanning ----------
-  function resizeImage(file, maxSide = 1600) {
-    return new Promise((resolve, reject) => {
-      const img = new Image();
-      const url = URL.createObjectURL(file);
-      img.onload = () => {
-        const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
-        const canvas = document.createElement("canvas");
-        canvas.width = Math.round(img.width * scale);
-        canvas.height = Math.round(img.height * scale);
-        canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
-        URL.revokeObjectURL(url);
-        resolve(canvas.toDataURL("image/jpeg", 0.85).split(",")[1]);
-      };
-      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("Couldn't open that photo.")); };
-      img.src = url;
-    });
-  }
-
-  async function onReceipt(e) {
-    const file = e.target.files[0];
-    e.target.value = "";
-    if (!file) return;
-    const status = $("#scan-status");
-    const box = $("#scan-box");
-    if (!device.passcode) {
-      status.className = "error small";
-      status.textContent = "Receipt scanning needs the household passcode. Connect in Settings → Household sync.";
-      return;
-    }
-    box.classList.add("busy");
-    status.className = "muted small";
-    status.textContent = "Reading receipt… (takes a few seconds)";
-    try {
-      const image = await resizeImage(file);
-      const r = await api("/api/scan", {
-        method: "POST",
-        body: JSON.stringify({ image, categories: state.settings.categories, today: todayISO() }),
-      });
-      form.type.value = "purchase";
-      if (r.date) form.date.value = r.date;
-      if (r.amount > 0) form.amount.value = round2(r.amount);
-      if (r.merchant) form.description.value = r.merchant;
-      if (r.category && state.settings.categories.includes(r.category)) form.category.value = r.category;
-      if (r.notes) form.notes.value = r.notes;
-      scannedThisEntry = true;
-      syncFormMode();
-      const missing = [!r.date && "date", !(r.amount > 0) && "amount"].filter(Boolean);
-      status.className = missing.length ? "error small" : "ok small";
-      status.textContent = missing.length
-        ? `Filled what I could — please add the ${missing.join(" and ")}.`
-        : "✓ Filled in from the receipt. Please double-check, then Save.";
-    } catch (err) {
-      status.className = "error small";
-      status.textContent = err.status ? err.message : "Couldn't reach the scanner. Check your connection.";
-    } finally {
-      box.classList.remove("busy");
-    }
-  }
-  $("#scan-camera").addEventListener("change", onReceipt);
-  $("#scan-file").addEventListener("change", onReceipt);
-
-  // ---------- Settings ----------
-  const splitList = (s) => s.split(",").map((x) => x.trim()).filter(Boolean);
-
-  $("#settings-form").categories.addEventListener("change", (e) => {
-    // Keep typed budgets while the category list is edited.
-    const typed = {};
-    $$("#budget-inputs [data-budget]").forEach((i) => { if (i.value) typed[i.dataset.budget] = i.value; });
-    state.settings.budgets = { ...state.settings.budgets, ...typed };
-    renderBudgetInputs(splitList(e.target.value));
-  });
-
-  $("#settings-form").addEventListener("submit", (e) => {
-    e.preventDefault();
-    const f = e.target;
-    const categories = splitList(f.categories.value).length ? splitList(f.categories.value) : DEFAULT_CATEGORIES.slice();
-    const budgets = {};
-    $$("#budget-inputs [data-budget]").forEach((i) => {
-      if (Number(i.value) > 0 && categories.includes(i.dataset.budget)) budgets[i.dataset.budget] = round2(Number(i.value));
-    });
-    state.settings = {
-      cardName: f.cardName.value.trim() || "BPI Credit Card",
-      last4: f.last4.value.trim(),
-      creditLimit: Number(f.creditLimit.value) || 0,
-      cutoffDay: Math.min(31, Math.max(1, Number(f.cutoffDay.value) || 15)),
-      dueDays: Math.max(1, Number(f.dueDays.value) || 20),
-      reminderDays: Math.max(0, Number(f.reminderDays.value) || 0),
-      cardholders: splitList(f.cardholders.value).length ? splitList(f.cardholders.value) : ["Principal"],
-      categories,
-      budgets,
-      updatedAt: Date.now(),
-    };
-    save();
-    currentCycle = cycleOf(todayISO());
-    renderAll();
-    renderSettings();
-    $("#settings-saved").textContent = "Saved ✓";
-    setTimeout(() => ($("#settings-saved").textContent = ""), 2000);
-  });
-
+  // ---------- Calendar & data ----------
   function download(name, text, mime) {
     const a = document.createElement("a");
     a.href = URL.createObjectURL(new Blob([text], { type: mime }));
@@ -849,7 +1035,7 @@
     const remind = Math.max(0, Number(state.settings.reminderDays) || 0);
     const name = state.settings.cardName + (state.settings.last4 ? ` ••${state.settings.last4}` : "");
     const lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Pineda CC Tracker//EN", "CALSCALE:GREGORIAN", "METHOD:PUBLISH"];
-    let key = addMonths(cycleOf(todayISO()), -1);
+    let key = addMonths(thisCycle(), -1);
     for (let i = 0; i < 12; i++, key = addMonths(key, 1)) {
       const { due } = cycleInfo(key);
       if (due < parseISO(todayISO())) continue;
@@ -911,6 +1097,7 @@
       save();
       renderAll();
       renderSettings();
+      toast("Backup restored ✓");
     } catch (err) {
       alert("Import failed: " + err.message);
     } finally {
@@ -936,6 +1123,17 @@
     }
     if (cell || row.length) { row.push(cell); rows.push(row); }
     return rows.filter((r) => r.some((x) => x.trim()));
+  }
+
+  function normalizeDate(s) {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+    const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/); // MM/DD/YYYY
+    if (m) {
+      const y = m[3].length === 2 ? 2000 + Number(m[3]) : Number(m[3]);
+      return `${y}-${pad(m[1])}-${pad(m[2])}`;
+    }
+    const d = new Date(s);
+    return isNaN(d) ? "" : toISO(d);
   }
 
   $("#import-csv").addEventListener("change", async (e) => {
@@ -968,23 +1166,13 @@
       state.transactions.push(...added);
       save();
       renderAll();
+      toast(`${added.length} imported ✓`);
     } catch (err) {
       alert("Import failed: " + err.message);
     } finally {
       e.target.value = "";
     }
   });
-
-  function normalizeDate(s) {
-    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
-    const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/); // MM/DD/YYYY
-    if (m) {
-      const y = m[3].length === 2 ? 2000 + Number(m[3]) : Number(m[3]);
-      return `${y}-${pad(m[1])}-${pad(m[2])}`;
-    }
-    const d = new Date(s);
-    return isNaN(d) ? "" : toISO(d);
-  }
 
   $("#clear-all").addEventListener("click", () => {
     const msg = device.passcode
@@ -993,12 +1181,23 @@
     if (!confirm(msg)) return;
     replaceAll(defaultState());
     save();
-    currentCycle = cycleOf(todayISO());
+    currentCycle = thisCycle();
     renderAll();
     renderSettings();
   });
 
+  // ---------- Render all ----------
+  function renderAll() {
+    renderHome();
+    renderActivity();
+    renderBudgets();
+    renderInstallments();
+    renderTrends();
+    if ($("#stmt-sheet").open) renderStatement();
+  }
+
+  applyTheme();
   renderAll();
-  setSyncPill(device.passcode ? "" : "");
+  setSyncDot();
   syncNow();
 })();

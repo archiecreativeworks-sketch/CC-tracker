@@ -2,9 +2,11 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <meta name="theme-color" content="#b11226" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
+  <meta name="theme-color" content="#0a0a0c" media="(prefers-color-scheme: dark)" />
+  <meta name="theme-color" content="#f2f2f6" media="(prefers-color-scheme: light)" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="Pineda CC" />
   <link rel="manifest" href="manifest.json" />
   <link rel="icon" href="icon.svg" type="image/svg+xml" />
@@ -13,260 +15,314 @@
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <header class="topbar">
-    <div class="brand">
-      <span class="card-chip" aria-hidden="true"></span>
-      <div>
-        <h1>The Pineda’s Blessed CC Tracker</h1>
-        <p id="card-sub" class="muted"></p>
-      </div>
-    </div>
-    <button class="btn primary" id="add-btn">+ Add</button>
-  </header>
+  <div class="app">
+    <main>
+      <!-- ============ HOME ============ -->
+      <section id="view-home" class="view active" aria-label="Home">
+        <header class="hero-head">
+          <div>
+            <p class="eyebrow" id="greeting">Good day</p>
+            <h1 class="brand-title">The Pineda’s Blessed<br /><span>CC Tracker</span></h1>
+          </div>
+          <button class="sync-dot" id="sync-dot" aria-label="Sync status" hidden></button>
+        </header>
 
-  <nav class="tabs" role="tablist">
-    <button class="tab active" data-view="dashboard">Overview</button>
-    <button class="tab" data-view="transactions">Transactions</button>
-    <button class="tab" data-view="installments">Installments</button>
-    <button class="tab" data-view="settings">Settings</button>
-    <span class="spacer"></span>
-    <span id="sync-pill" class="sync-pill" hidden></span>
-  </nav>
+        <article class="cc" id="cc-card">
+          <div class="cc-top">
+            <span class="cc-name" id="cc-name">BPI Credit Card</span>
+            <span class="cc-contactless" aria-hidden="true"></span>
+          </div>
+          <div class="cc-chip" aria-hidden="true"></div>
+          <div class="cc-figure">
+            <span class="cc-label" id="cc-label">Available credit</span>
+            <span class="cc-amount" id="cc-amount">₱0.00</span>
+            <span class="cc-sub" id="cc-sub"></span>
+          </div>
+          <div class="cc-meter"><div id="cc-meter-fill"></div></div>
+          <div class="cc-bottom">
+            <span id="cc-number">•••• ••••</span>
+            <span id="cc-cutoff"></span>
+          </div>
+        </article>
 
-  <main>
-    <!-- OVERVIEW -->
-    <section id="view-dashboard" class="view active">
-      <div id="reminder" class="banner" hidden></div>
-      <div id="budget-alert" class="banner warn" hidden></div>
-
-      <div class="cycle-nav">
-        <button class="btn ghost" id="cycle-prev" aria-label="Previous statement">‹</button>
-        <div class="cycle-label">
-          <strong id="cycle-title"></strong>
-          <span id="cycle-range" class="muted"></span>
+        <div class="tiles">
+          <button class="tile tile-due" id="tile-due">
+            <span class="tile-label">Next payment</span>
+            <span class="tile-value" id="due-amount">—</span>
+            <span class="tile-sub" id="due-sub"></span>
+            <span class="tile-badge" id="due-badge"></span>
+          </button>
+          <button class="tile" id="tile-outstanding">
+            <span class="tile-label">Outstanding</span>
+            <span class="tile-value" id="out-amount">—</span>
+            <span class="tile-sub">Incl. installments</span>
+          </button>
         </div>
-        <button class="btn ghost" id="cycle-next" aria-label="Next statement">›</button>
-      </div>
 
-      <div class="stats">
-        <div class="stat">
-          <span class="stat-label">Charges this statement</span>
-          <span class="stat-value" id="stat-cycle"></span>
-          <span class="stat-note" id="stat-cycle-note"></span>
+        <div id="alerts" class="alerts"></div>
+
+        <article class="card">
+          <div class="card-head">
+            <div>
+              <span class="card-kicker">Spending</span>
+              <button class="cycle-btn" id="cycle-btn"><span id="cycle-name"></span></button>
+            </div>
+            <div class="stepper">
+              <button class="icon-btn" id="cycle-prev" aria-label="Previous statement"></button>
+              <button class="icon-btn" id="cycle-next" aria-label="Next statement"></button>
+            </div>
+          </div>
+          <div class="spend-total"><span id="spend-total">₱0.00</span><span class="spend-range" id="cycle-range"></span></div>
+          <div class="segbar" id="segbar" role="img"></div>
+          <ul class="cat-list" id="cat-list"></ul>
+        </article>
+
+        <article class="card">
+          <div class="card-head">
+            <span class="card-title">Recent</span>
+            <button class="link" data-goto="activity">See all</button>
+          </div>
+          <ul class="tx-list" id="recent-list"></ul>
+        </article>
+      </section>
+
+      <!-- ============ ACTIVITY ============ -->
+      <section id="view-activity" class="view" aria-label="Activity">
+        <header class="page-head"><h1>Activity</h1></header>
+        <div class="searchbar">
+          <span class="search-icon" aria-hidden="true"></span>
+          <input type="search" id="search" placeholder="Search" autocomplete="off" />
         </div>
-        <div class="stat">
-          <span class="stat-label">Payment due</span>
-          <span class="stat-value" id="stat-due"></span>
-          <span class="stat-note" id="stat-due-note"></span>
+        <div class="chips" id="filter-chips"></div>
+        <p class="list-summary" id="tx-summary"></p>
+        <div id="tx-groups"></div>
+      </section>
+
+      <!-- ============ INSIGHTS ============ -->
+      <section id="view-insights" class="view" aria-label="Insights">
+        <header class="page-head"><h1>Insights</h1></header>
+        <div class="segmented" id="insight-tabs" role="tablist">
+          <button class="active" data-pane="budgets">Budgets</button>
+          <button data-pane="installments">Installments</button>
+          <button data-pane="trends">Trends</button>
         </div>
-        <div class="stat">
-          <span class="stat-label">Outstanding balance</span>
-          <span class="stat-value" id="stat-outstanding"></span>
-          <span class="stat-note">All charges minus payments &amp; refunds</span>
+
+        <div class="pane active" id="pane-budgets">
+          <article class="card">
+            <div class="card-head">
+              <div><span class="card-kicker">This statement</span><span class="card-title" id="budget-cycle"></span></div>
+            </div>
+            <div id="budget-summary" class="budget-summary"></div>
+            <ul class="meters" id="budget-list"></ul>
+          </article>
         </div>
-        <div class="stat">
-          <span class="stat-label">Available credit</span>
-          <span class="stat-value" id="stat-available"></span>
-          <div class="meter"><div class="meter-fill" id="limit-meter"></div></div>
-          <span class="stat-note" id="stat-limit-note"></span>
+
+        <div class="pane" id="pane-installments">
+          <article class="card hero-card">
+            <span class="card-kicker">Billed monthly</span>
+            <span class="big-number" id="inst-monthly">₱0.00</span>
+            <span class="muted" id="inst-count"></span>
+          </article>
+          <ul class="inst-list" id="inst-list"></ul>
         </div>
-      </div>
 
-      <div class="panel">
-        <h2>Budgets this statement</h2>
-        <div id="budgets" class="bars"></div>
-      </div>
-
-      <div class="grid-2">
-        <div class="panel">
-          <h2>By category</h2>
-          <div id="by-category" class="bars"></div>
+        <div class="pane" id="pane-trends">
+          <article class="card">
+            <div class="card-head">
+              <div><span class="card-kicker">Last 6 statements</span><span class="card-title" id="trend-caption">Charges per statement</span></div>
+            </div>
+            <div class="columns" id="trend"></div>
+            <div class="trend-foot" id="trend-foot"></div>
+          </article>
         </div>
-        <div class="panel">
-          <h2>By cardholder</h2>
-          <div id="by-holder" class="bars"></div>
+      </section>
+
+      <!-- ============ SETTINGS ============ -->
+      <section id="view-settings" class="view" aria-label="Settings">
+        <header class="page-head"><h1>Settings</h1></header>
+
+        <h3 class="group-title">Household sync</h3>
+        <div class="group">
+          <div id="sync-connected" class="row-static" hidden>
+            <div><strong class="ok-text">● Connected</strong><span class="row-sub" id="sync-status"></span></div>
+            <div class="row-actions">
+              <button class="pill" type="button" id="sync-now">Sync now</button>
+              <button class="pill danger" type="button" id="sync-disconnect">Disconnect</button>
+            </div>
+          </div>
+          <form id="sync-form" class="row-form">
+            <p class="row-sub">Share one set of data across your phones. The passcode also unlocks receipt scanning.</p>
+            <div class="inline-input">
+              <input name="passcode" type="password" placeholder="Household passcode" autocomplete="current-password" required />
+              <button class="pill primary" type="submit">Connect</button>
+            </div>
+            <span id="sync-error" class="row-sub err"></span>
+          </form>
         </div>
-      </div>
 
-      <form class="panel form" id="recon-form">
-        <h2>Check against your BPI statement</h2>
-        <p class="muted small">When your BPI statement arrives, enter its <strong>Total Amount Due</strong>. We'll compare it with what you've recorded.</p>
-        <div class="row">
-          <label>BPI Total Amount Due (₱)
-            <input name="totalDue" type="number" step="0.01" inputmode="decimal" />
-          </label>
-          <label>Minimum Amount Due (₱)
-            <input name="minDue" type="number" step="0.01" min="0" inputmode="decimal" />
-          </label>
-        </div>
-        <div id="recon-result" class="recon"></div>
-        <button class="btn" type="submit">Save statement amounts</button>
-      </form>
+        <form id="settings-form" autocomplete="off">
+          <h3 class="group-title">Card</h3>
+          <div class="group">
+            <label class="row"><span>Card name</span><input name="cardName" placeholder="BPI Gold Mastercard" /></label>
+            <label class="row"><span>Last 4 digits</span><input name="last4" maxlength="4" inputmode="numeric" placeholder="1234" /></label>
+            <label class="row"><span>Credit limit</span><input name="creditLimit" type="number" min="0" step="0.01" inputmode="decimal" placeholder="₱0" /></label>
+            <label class="row"><span>Statement cut-off day</span><input name="cutoffDay" type="number" min="1" max="31" inputmode="numeric" /></label>
+            <label class="row"><span>Days until due date</span><input name="dueDays" type="number" min="1" max="60" inputmode="numeric" /></label>
+          </div>
 
-      <div class="panel">
-        <h2>Last 6 statements</h2>
-        <div id="trend" class="trend"></div>
-      </div>
-    </section>
+          <h3 class="group-title">Reminders</h3>
+          <div class="group">
+            <label class="row"><span>Remind me before due (days)</span><input name="reminderDays" type="number" min="0" max="20" inputmode="numeric" /></label>
+            <button class="row row-button" type="button" id="calendar-btn"><span>Add due dates to calendar</span><i class="chev"></i></button>
+          </div>
+          <p class="group-note">Adds the next 12 due dates to your phone’s calendar with alerts. Re-add if you change the cut-off day.</p>
 
-    <!-- TRANSACTIONS -->
-    <section id="view-transactions" class="view">
-      <div class="filters">
-        <input type="search" id="search" placeholder="Search description or notes…" />
-        <select id="filter-cycle"></select>
-        <select id="filter-category"><option value="">All categories</option></select>
-        <select id="filter-holder"><option value="">All cardholders</option></select>
-      </div>
-      <div id="tx-summary" class="muted small"></div>
-      <div id="tx-list" class="tx-list"></div>
-    </section>
+          <h3 class="group-title">People &amp; categories</h3>
+          <div class="group">
+            <label class="row stack"><span>Cardholders</span><input name="cardholders" placeholder="Archie, Partner" /></label>
+            <label class="row stack"><span>Categories</span><textarea name="categories" rows="3"></textarea></label>
+          </div>
+          <p class="group-note">Separate names with commas.</p>
 
-    <!-- INSTALLMENTS -->
-    <section id="view-installments" class="view">
-      <p class="muted small">Purchases on installment (e.g. BPI Real 0% or SIP). The monthly amortization is billed on each statement until fully paid.</p>
-      <div id="inst-list" class="tx-list"></div>
-    </section>
+          <h3 class="group-title">Monthly budgets</h3>
+          <div class="group" id="budget-inputs"></div>
+          <p class="group-note">Per statement. Leave blank for no budget.</p>
+        </form>
 
-    <!-- SETTINGS -->
-    <section id="view-settings" class="view">
-      <div class="panel form" id="sync-panel">
-        <h2>Household sync</h2>
-        <p class="muted small">Enter your household passcode to share one set of data across your phones. The passcode also unlocks receipt scanning.</p>
-        <div id="sync-connected" hidden>
-          <p><span class="ok">● Connected</span> <span id="sync-status" class="muted small"></span></p>
-          <div class="btn-row">
-            <button class="btn" type="button" id="sync-now">Sync now</button>
-            <button class="btn danger" type="button" id="sync-disconnect">Disconnect this device</button>
+        <h3 class="group-title">Appearance</h3>
+        <div class="group">
+          <div class="row"><span>Theme</span>
+            <div class="mini-seg" id="theme-seg">
+              <button data-theme-opt="system">Auto</button><button data-theme-opt="light">Light</button><button data-theme-opt="dark">Dark</button>
+            </div>
           </div>
         </div>
-        <form id="sync-form">
-          <label>Household passcode
-            <input name="passcode" type="password" autocomplete="current-password" required />
-          </label>
-          <button class="btn primary" type="submit">Connect</button>
-          <span id="sync-error" class="error small"></span>
-        </form>
-      </div>
 
-      <form id="settings-form" class="panel form">
-        <h2>Card details</h2>
-        <label>Card name
-          <input name="cardName" required placeholder="BPI Gold Mastercard" />
-        </label>
-        <label>Last 4 digits
-          <input name="last4" maxlength="4" inputmode="numeric" pattern="\d{0,4}" placeholder="1234" />
-        </label>
-        <label>Credit limit (₱)
-          <input name="creditLimit" type="number" min="0" step="0.01" />
-        </label>
-        <div class="row">
-          <label>Statement cut-off day
-            <input name="cutoffDay" type="number" min="1" max="31" required />
-          </label>
-          <label>Days from cut-off to due date
-            <input name="dueDays" type="number" min="1" max="60" required />
-          </label>
+        <h3 class="group-title">Your data</h3>
+        <div class="group">
+          <button class="row row-button" id="export-json"><span>Export backup</span><i class="chev"></i></button>
+          <button class="row row-button" id="export-csv"><span>Export transactions (CSV)</span><i class="chev"></i></button>
+          <label class="row row-button"><span>Import backup</span><i class="chev"></i><input type="file" id="import-json" accept="application/json" hidden /></label>
+          <label class="row row-button"><span>Import CSV</span><i class="chev"></i><input type="file" id="import-csv" accept=".csv,text/csv" hidden /></label>
+          <button class="row row-button danger" id="clear-all"><span>Delete all data</span></button>
         </div>
-        <label>Remind me this many days before the due date
-          <input name="reminderDays" type="number" min="0" max="20" />
-        </label>
-        <label>Cardholders <span class="muted small">(comma-separated, e.g. principal and supplementary)</span>
-          <input name="cardholders" placeholder="Me, Partner" />
-        </label>
-        <label>Categories <span class="muted small">(comma-separated)</span>
-          <textarea name="categories" rows="3"></textarea>
-        </label>
-        <h2>Monthly budgets per statement</h2>
-        <p class="muted small">Leave blank for no budget.</p>
-        <div id="budget-inputs" class="budget-grid"></div>
-        <button class="btn primary" type="submit">Save settings</button>
-        <span id="settings-saved" class="muted small"></span>
-      </form>
+        <p class="group-note">CSV columns: date, description, amount, category, cardholder, type, notes.</p>
+        <p class="footer-note">The Pineda’s Blessed CC Tracker</p>
+      </section>
+    </main>
 
-      <div class="panel form">
-        <h2>Due-date reminders</h2>
-        <p class="muted small">Adds the next 12 BPI due dates to your phone's calendar, with alerts before each one. Re-download if you change your cut-off day.</p>
-        <button class="btn" id="calendar-btn">Add due dates to calendar</button>
+    <!-- ============ TAB BAR ============ -->
+    <nav class="tabbar" aria-label="Main">
+      <button class="tab active" data-view="home"><i data-icon="home"></i><span>Home</span></button>
+      <button class="tab" data-view="activity"><i data-icon="list"></i><span>Activity</span></button>
+      <button class="fab" id="fab" aria-label="Add expense"><i data-icon="plus"></i></button>
+      <button class="tab" data-view="insights"><i data-icon="chart"></i><span>Insights</span></button>
+      <button class="tab" data-view="settings"><i data-icon="gear"></i><span>Settings</span></button>
+    </nav>
+  </div>
+
+  <!-- ============ ADD ACTION SHEET ============ -->
+  <dialog class="sheet action-sheet" id="add-sheet">
+    <div class="grabber"></div>
+    <h2 class="sheet-title">Add</h2>
+    <div class="action-grid">
+      <label class="action primary">
+        <i data-icon="camera"></i><strong>Scan receipt</strong><span>Take a photo</span>
+        <input type="file" id="scan-camera" accept="image/*" capture="environment" hidden />
+      </label>
+      <label class="action">
+        <i data-icon="image"></i><strong>From photos</strong><span>Pick a receipt</span>
+        <input type="file" id="scan-file" accept="image/*" hidden />
+      </label>
+      <button class="action" data-new="purchase"><i data-icon="pen"></i><strong>Enter manually</strong><span>Type it in</span></button>
+      <button class="action" data-new="payment"><i data-icon="check"></i><strong>Payment</strong><span>Paid BPI</span></button>
+    </div>
+    <button class="sheet-cancel" data-close>Cancel</button>
+  </dialog>
+
+  <!-- ============ TRANSACTION SHEET ============ -->
+  <dialog class="sheet tx-sheet" id="tx-sheet">
+    <form id="tx-form" method="dialog" novalidate>
+      <div class="grabber"></div>
+      <div class="sheet-bar">
+        <button type="button" class="text-btn" data-close>Cancel</button>
+        <span class="sheet-bar-title" id="tx-title">New expense</span>
+        <button type="submit" class="text-btn strong">Save</button>
       </div>
 
-      <div class="panel form">
-        <h2>Your data</h2>
-        <p class="muted small">Without household sync, data is stored only in this browser. Export a backup now and then.</p>
-        <div class="btn-row">
-          <button class="btn" id="export-json">Export backup (JSON)</button>
-          <button class="btn" id="export-csv">Export transactions (CSV)</button>
-          <label class="btn">Import backup<input type="file" id="import-json" accept="application/json" hidden /></label>
-          <label class="btn">Import CSV<input type="file" id="import-csv" accept=".csv,text/csv" hidden /></label>
-        </div>
-        <p class="muted small">CSV import expects columns: <code>date,description,amount,category,cardholder,type,notes</code> (type is purchase, payment, refund or fee).</p>
-        <button class="btn danger" id="clear-all">Delete all data</button>
+      <div class="scan-banner" id="scan-banner" hidden>
+        <span class="spinner"></span><span id="scan-text">Reading receipt…</span>
       </div>
-    </section>
-  </main>
 
-  <!-- ADD / EDIT DIALOG -->
-  <dialog id="tx-dialog">
-    <form id="tx-form" method="dialog" class="form">
-      <h2 id="tx-dialog-title">Add transaction</h2>
-      <div class="scan-box" id="scan-box">
-        <div class="btn-row">
-          <label class="btn primary">📷 Take photo of receipt<input type="file" id="scan-camera" accept="image/*" capture="environment" hidden /></label>
-          <label class="btn">Choose photo<input type="file" id="scan-file" accept="image/*" hidden /></label>
-        </div>
-        <p id="scan-status" class="muted small">Or fill in the details yourself below.</p>
-      </div>
-      <div class="seg" role="radiogroup" aria-label="Type">
+      <div class="type-seg" role="radiogroup" aria-label="Type">
         <label><input type="radio" name="type" value="purchase" checked /><span>Purchase</span></label>
         <label><input type="radio" name="type" value="payment" /><span>Payment</span></label>
         <label><input type="radio" name="type" value="refund" /><span>Refund</span></label>
-        <label><input type="radio" name="type" value="fee" /><span>Fee/Interest</span></label>
+        <label><input type="radio" name="type" value="fee" /><span>Fee</span></label>
       </div>
-      <div class="row">
-        <label>Date
-          <input name="date" type="date" required />
-        </label>
-        <label>Amount (₱)
-          <input name="amount" type="number" min="0.01" step="0.01" required inputmode="decimal" />
-        </label>
+
+      <div class="amount-hero">
+        <span class="peso">₱</span>
+        <input name="amount" type="number" min="0.01" step="0.01" inputmode="decimal" placeholder="0.00" required />
       </div>
-      <label>Description
-        <input name="description" required placeholder="e.g. SM Supermarket" autocomplete="off" list="desc-suggestions" />
-        <datalist id="desc-suggestions"></datalist>
-      </label>
-      <div class="row purchase-only">
-        <label>Category
-          <select name="category"></select>
-        </label>
-        <label>Cardholder
-          <select name="cardholder"></select>
-        </label>
+      <input class="desc-input" name="description" placeholder="Where? e.g. SM Supermarket" autocomplete="off" list="desc-suggestions" required />
+      <datalist id="desc-suggestions"></datalist>
+
+      <div class="purchase-only">
+        <span class="field-label">Category</span>
+        <div class="cat-chips" id="cat-chips"></div>
+        <input type="hidden" name="category" />
       </div>
-      <div class="purchase-only installment-box">
-        <label class="check"><input type="checkbox" name="isInstallment" /> Installment purchase</label>
-        <div class="row installment-fields">
-          <label>Months
-            <select name="months">
-              <option>3</option><option>6</option><option>9</option><option selected>12</option>
-              <option>18</option><option>24</option><option>36</option>
-            </select>
+
+      <div class="group">
+        <label class="row"><span>Date</span><input name="date" type="date" required /></label>
+        <div class="row purchase-only"><span>Card used by</span><div class="mini-seg" id="holder-seg"></div></div>
+        <input type="hidden" name="cardholder" />
+        <label class="row purchase-only"><span>Installment</span><span class="switch"><input type="checkbox" name="isInstallment" /><i></i></span></label>
+        <div class="installment-fields purchase-only">
+          <label class="row"><span>Months</span>
+            <select name="months"><option>3</option><option>6</option><option>9</option><option selected>12</option><option>18</option><option>24</option><option>36</option></select>
           </label>
-          <label>Monthly add-on rate (%)
-            <input name="rate" type="number" min="0" step="0.01" value="0" />
-          </label>
+          <label class="row"><span>Add-on rate / month</span><input name="rate" type="number" min="0" step="0.01" value="0" inputmode="decimal" /></label>
+          <p class="row-sub inst-preview" id="installment-preview"></p>
         </div>
-        <p class="muted small installment-fields" id="installment-preview"></p>
+        <label class="row"><span>Notes</span><input name="notes" placeholder="Optional" autocomplete="off" /></label>
       </div>
-      <label>Notes
-        <input name="notes" autocomplete="off" />
-      </label>
-      <div class="btn-row end">
-        <button class="btn danger" type="button" id="tx-delete" hidden>Delete</button>
-        <span class="spacer"></span>
-        <button class="btn" type="button" id="tx-cancel">Cancel</button>
-        <button class="btn primary" type="submit">Save</button>
-      </div>
+      <p class="form-error" id="tx-error"></p>
+      <button type="button" class="delete-btn" id="tx-delete" hidden>Delete transaction</button>
     </form>
   </dialog>
+
+  <!-- ============ STATEMENT SHEET ============ -->
+  <dialog class="sheet" id="stmt-sheet">
+    <div class="grabber"></div>
+    <div class="sheet-bar">
+      <button type="button" class="icon-btn" id="stmt-prev" aria-label="Previous statement"></button>
+      <span class="sheet-bar-title" id="stmt-title"></span>
+      <button type="button" class="icon-btn" id="stmt-next" aria-label="Next statement"></button>
+    </div>
+    <p class="stmt-period" id="stmt-period"></p>
+    <div class="stmt-hero">
+      <span class="card-kicker" id="stmt-due-label">Amount due</span>
+      <span class="big-number" id="stmt-due"></span>
+      <span class="status-chip" id="stmt-status"></span>
+    </div>
+    <div class="group">
+      <div class="row"><span>Previous balance</span><b id="stmt-prev-bal"></b></div>
+      <div class="row"><span>Charges &amp; installments</span><b id="stmt-charges"></b></div>
+      <div class="row"><span>Payments &amp; refunds</span><b id="stmt-credits"></b></div>
+      <div class="row total"><span>Your recorded balance</span><b id="stmt-recorded"></b></div>
+    </div>
+    <h3 class="group-title">From your BPI statement</h3>
+    <form class="group" id="recon-form">
+      <label class="row"><span>Total Amount Due</span><input name="totalDue" type="number" step="0.01" inputmode="decimal" placeholder="₱0.00" /></label>
+      <label class="row"><span>Minimum Amount Due</span><input name="minDue" type="number" step="0.01" min="0" inputmode="decimal" placeholder="₱0.00" /></label>
+    </form>
+    <div class="recon-result" id="recon-result"></div>
+    <button class="sheet-cancel" data-close>Done</button>
+  </dialog>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"><span id="toast-text"></span><button id="toast-action"></button></div>
 
   <script src="shared/merge.js"></script>
   <script src="app.js"></script>
