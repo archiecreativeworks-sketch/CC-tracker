@@ -22,7 +22,8 @@
   ];
 
   const defaultSettings = () => ({
-    cardName: "BPI Credit Card",
+    cardName: "BPI Amore Cashback",
+    nameOnCard: "",
     last4: "",
     creditLimit: 0,
     cutoffDay: 15,
@@ -99,6 +100,11 @@
   ["#cycle-prev", "#stmt-prev"].forEach((s) => ($(s).innerHTML = svg("left")));
   ["#cycle-next", "#stmt-next"].forEach((s) => ($(s).innerHTML = svg("right")));
   $(".search-icon").innerHTML = svg("search");
+  $("#cc-waves").innerHTML = Array.from({ length: 34 }, (_, i) => {
+    const y = -20 + i * 9, k = i / 33;
+    const swell = 38 * Math.sin(Math.PI * k);
+    return `<path d="M-20 ${y} C 90 ${y + 10 - swell * 0.3}, 170 ${y - 6}, 250 ${y - swell * 0.9} S 360 ${y + 18 + swell * 0.4}, 420 ${y + 8}"/>`;
+  }).join("");
 
   // ---------- Billing cycles ----------
   // A cycle is identified by its statement (cut-off) month: "YYYY-MM".
@@ -295,9 +301,8 @@
     $("#greeting").textContent = (h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening") + " ✨";
 
     const s = state.settings;
-    $("#cc-name").textContent = s.cardName || "BPI Credit Card";
-    $("#cc-number").textContent = `••••  ••••  ••••  ${s.last4 || "••••"}`;
-    $("#cc-cutoff").textContent = `Cut-off ${ordinal(s.cutoffDay)}`;
+    $("#cc-holder").textContent = s.nameOnCard || "";
+    $("#cc-number").textContent = s.last4 ? `••••  ${s.last4}` : `Cut-off ${ordinal(s.cutoffDay)}`;
     const bal = outstanding();
     const limit = Number(s.creditLimit) || 0;
     if (limit > 0) {
@@ -554,6 +559,7 @@
     const f = $("#settings-form");
     const s = state.settings;
     f.cardName.value = s.cardName;
+    f.nameOnCard.value = s.nameOnCard || "";
     f.last4.value = s.last4;
     f.creditLimit.value = s.creditLimit || "";
     f.cutoffDay.value = s.cutoffDay;
@@ -576,7 +582,8 @@
       if (Number(i.value) > 0 && categories.includes(i.dataset.budget)) budgets[i.dataset.budget] = round2(Number(i.value));
     });
     state.settings = {
-      cardName: f.cardName.value.trim() || "BPI Credit Card",
+      cardName: f.cardName.value.trim() || "BPI Amore Cashback",
+      nameOnCard: f.nameOnCard.value.trim().toUpperCase(),
       last4: f.last4.value.replace(/\D/g, "").slice(0, 4),
       creditLimit: Number(f.creditLimit.value) || 0,
       cutoffDay: Math.min(31, Math.max(1, Number(f.cutoffDay.value) || 15)),
