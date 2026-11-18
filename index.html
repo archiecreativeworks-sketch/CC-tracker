@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#b11226" />
+  <title>BPI Card Tracker</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="card-chip" aria-hidden="true"></span>
+      <div>
+        <h1 id="card-title">BPI Credit Card</h1>
+        <p id="card-sub" class="muted"></p>
+      </div>
+    </div>
+    <button class="btn primary" id="add-btn">+ Add</button>
+  </header>
+
+  <nav class="tabs" role="tablist">
+    <button class="tab active" data-view="dashboard">Overview</button>
+    <button class="tab" data-view="transactions">Transactions</button>
+    <button class="tab" data-view="installments">Installments</button>
+    <button class="tab" data-view="settings">Settings</button>
+  </nav>
+
+  <main>
+    <!-- OVERVIEW -->
+    <section id="view-dashboard" class="view active">
+      <div class="cycle-nav">
+        <button class="btn ghost" id="cycle-prev" aria-label="Previous statement">‹</button>
+        <div class="cycle-label">
+          <strong id="cycle-title"></strong>
+          <span id="cycle-range" class="muted"></span>
+        </div>
+        <button class="btn ghost" id="cycle-next" aria-label="Next statement">›</button>
+      </div>
+
+      <div class="stats">
+        <div class="stat">
+          <span class="stat-label">Charges this statement</span>
+          <span class="stat-value" id="stat-cycle"></span>
+          <span class="stat-note" id="stat-cycle-note"></span>
+        </div>
+        <div class="stat">
+          <span class="stat-label">Payment due</span>
+          <span class="stat-value" id="stat-due"></span>
+          <span class="stat-note" id="stat-due-note"></span>
+        </div>
+        <div class="stat">
+          <span class="stat-label">Outstanding balance</span>
+          <span class="stat-value" id="stat-outstanding"></span>
+          <span class="stat-note">All charges minus payments &amp; refunds</span>
+        </div>
+        <div class="stat">
+          <span class="stat-label">Available credit</span>
+          <span class="stat-value" id="stat-available"></span>
+          <div class="meter"><div class="meter-fill" id="limit-meter"></div></div>
+          <span class="stat-note" id="stat-limit-note"></span>
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <div class="panel">
+          <h2>By category</h2>
+          <div id="by-category" class="bars"></div>
+        </div>
+        <div class="panel">
+          <h2>By cardholder</h2>
+          <div id="by-holder" class="bars"></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>Last 6 statements</h2>
+        <div id="trend" class="trend"></div>
+      </div>
+    </section>
+
+    <!-- TRANSACTIONS -->
+    <section id="view-transactions" class="view">
+      <div class="filters">
+        <input type="search" id="search" placeholder="Search description or notes…" />
+        <select id="filter-cycle"></select>
+        <select id="filter-category"><option value="">All categories</option></select>
+        <select id="filter-holder"><option value="">All cardholders</option></select>
+      </div>
+      <div id="tx-summary" class="muted small"></div>
+      <div id="tx-list" class="tx-list"></div>
+    </section>
+
+    <!-- INSTALLMENTS -->
+    <section id="view-installments" class="view">
+      <p class="muted small">Purchases on installment (e.g. BPI Real 0% or SIP). The monthly amortization is billed on each statement until fully paid.</p>
+      <div id="inst-list" class="tx-list"></div>
+    </section>
+
+    <!-- SETTINGS -->
+    <section id="view-settings" class="view">
+      <form id="settings-form" class="panel form">
+        <h2>Card details</h2>
+        <label>Card name
+          <input name="cardName" required placeholder="BPI Gold Mastercard" />
+        </label>
+        <label>Last 4 digits
+          <input name="last4" maxlength="4" inputmode="numeric" pattern="\d{0,4}" placeholder="1234" />
+        </label>
+        <label>Credit limit (₱)
+          <input name="creditLimit" type="number" min="0" step="0.01" />
+        </label>
+        <div class="row">
+          <label>Statement cut-off day
+            <input name="cutoffDay" type="number" min="1" max="31" required />
+          </label>
+          <label>Days from cut-off to due date
+            <input name="dueDays" type="number" min="1" max="60" required />
+          </label>
+        </div>
+        <label>Cardholders <span class="muted small">(comma-separated, e.g. principal and supplementary)</span>
+          <input name="cardholders" placeholder="Me, Partner" />
+        </label>
+        <label>Categories <span class="muted small">(comma-separated)</span>
+          <textarea name="categories" rows="3"></textarea>
+        </label>
+        <button class="btn primary" type="submit">Save settings</button>
+        <span id="settings-saved" class="muted small"></span>
+      </form>
+
+      <div class="panel form">
+        <h2>Your data</h2>
+        <p class="muted small">Everything is stored only in this browser. Export a backup regularly, and use Import to move data to another device.</p>
+        <div class="btn-row">
+          <button class="btn" id="export-json">Export backup (JSON)</button>
+          <button class="btn" id="export-csv">Export transactions (CSV)</button>
+          <label class="btn">Import backup<input type="file" id="import-json" accept="application/json" hidden /></label>
+          <label class="btn">Import CSV<input type="file" id="import-csv" accept=".csv,text/csv" hidden /></label>
+        </div>
+        <p class="muted small">CSV import expects columns: <code>date,description,amount,category,cardholder,type,notes</code> (type is purchase, payment, refund or fee).</p>
+        <button class="btn danger" id="clear-all">Delete all data</button>
+      </div>
+    </section>
+  </main>
+
+  <!-- ADD / EDIT DIALOG -->
+  <dialog id="tx-dialog">
+    <form id="tx-form" method="dialog" class="form">
+      <h2 id="tx-dialog-title">Add transaction</h2>
+      <div class="seg" role="radiogroup" aria-label="Type">
+        <label><input type="radio" name="type" value="purchase" checked /><span>Purchase</span></label>
+        <label><input type="radio" name="type" value="payment" /><span>Payment</span></label>
+        <label><input type="radio" name="type" value="refund" /><span>Refund</span></label>
+        <label><input type="radio" name="type" value="fee" /><span>Fee/Interest</span></label>
+      </div>
+      <div class="row">
+        <label>Date
+          <input name="date" type="date" required />
+        </label>
+        <label>Amount (₱)
+          <input name="amount" type="number" min="0.01" step="0.01" required inputmode="decimal" />
+        </label>
+      </div>
+      <label>Description
+        <input name="description" required placeholder="e.g. SM Supermarket" autocomplete="off" list="desc-suggestions" />
+        <datalist id="desc-suggestions"></datalist>
+      </label>
+      <div class="row purchase-only">
+        <label>Category
+          <select name="category"></select>
+        </label>
+        <label>Cardholder
+          <select name="cardholder"></select>
+        </label>
+      </div>
+      <div class="purchase-only installment-box">
+        <label class="check"><input type="checkbox" name="isInstallment" /> Installment purchase</label>
+        <div class="row installment-fields">
+          <label>Months
+            <select name="months">
+              <option>3</option><option>6</option><option>9</option><option selected>12</option>
+              <option>18</option><option>24</option><option>36</option>
+            </select>
+          </label>
+          <label>Monthly add-on rate (%)
+            <input name="rate" type="number" min="0" step="0.01" value="0" />
+          </label>
+        </div>
+        <p class="muted small installment-fields" id="installment-preview"></p>
+      </div>
+      <label>Notes
+        <input name="notes" autocomplete="off" />
+      </label>
+      <div class="btn-row end">
+        <button class="btn danger" type="button" id="tx-delete" hidden>Delete</button>
+        <span class="spacer"></span>
+        <button class="btn" type="button" id="tx-cancel">Cancel</button>
+        <button class="btn primary" type="submit">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="app.js"></script>
+</body>
+</html>
