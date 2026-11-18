@@ -2,9 +2,14 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#b11226" />
-  <title>BPI Card Tracker</title>
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="Pineda CC" />
+  <link rel="manifest" href="manifest.json" />
+  <link rel="icon" href="icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="icon.svg" />
+  <title>The Pineda’s Blessed CC Tracker</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -12,7 +17,7 @@
     <div class="brand">
       <span class="card-chip" aria-hidden="true"></span>
       <div>
-        <h1 id="card-title">BPI Credit Card</h1>
+        <h1>The Pineda’s Blessed CC Tracker</h1>
         <p id="card-sub" class="muted"></p>
       </div>
     </div>
@@ -24,11 +29,16 @@
     <button class="tab" data-view="transactions">Transactions</button>
     <button class="tab" data-view="installments">Installments</button>
     <button class="tab" data-view="settings">Settings</button>
+    <span class="spacer"></span>
+    <span id="sync-pill" class="sync-pill" hidden></span>
   </nav>
 
   <main>
     <!-- OVERVIEW -->
     <section id="view-dashboard" class="view active">
+      <div id="reminder" class="banner" hidden></div>
+      <div id="budget-alert" class="banner warn" hidden></div>
+
       <div class="cycle-nav">
         <button class="btn ghost" id="cycle-prev" aria-label="Previous statement">‹</button>
         <div class="cycle-label">
@@ -62,6 +72,11 @@
         </div>
       </div>
 
+      <div class="panel">
+        <h2>Budgets this statement</h2>
+        <div id="budgets" class="bars"></div>
+      </div>
+
       <div class="grid-2">
         <div class="panel">
           <h2>By category</h2>
@@ -72,6 +87,21 @@
           <div id="by-holder" class="bars"></div>
         </div>
       </div>
+
+      <form class="panel form" id="recon-form">
+        <h2>Check against your BPI statement</h2>
+        <p class="muted small">When your BPI statement arrives, enter its <strong>Total Amount Due</strong>. We'll compare it with what you've recorded.</p>
+        <div class="row">
+          <label>BPI Total Amount Due (₱)
+            <input name="totalDue" type="number" step="0.01" inputmode="decimal" />
+          </label>
+          <label>Minimum Amount Due (₱)
+            <input name="minDue" type="number" step="0.01" min="0" inputmode="decimal" />
+          </label>
+        </div>
+        <div id="recon-result" class="recon"></div>
+        <button class="btn" type="submit">Save statement amounts</button>
+      </form>
 
       <div class="panel">
         <h2>Last 6 statements</h2>
@@ -99,6 +129,25 @@
 
     <!-- SETTINGS -->
     <section id="view-settings" class="view">
+      <div class="panel form" id="sync-panel">
+        <h2>Household sync</h2>
+        <p class="muted small">Enter your household passcode to share one set of data across your phones. The passcode also unlocks receipt scanning.</p>
+        <div id="sync-connected" hidden>
+          <p><span class="ok">● Connected</span> <span id="sync-status" class="muted small"></span></p>
+          <div class="btn-row">
+            <button class="btn" type="button" id="sync-now">Sync now</button>
+            <button class="btn danger" type="button" id="sync-disconnect">Disconnect this device</button>
+          </div>
+        </div>
+        <form id="sync-form">
+          <label>Household passcode
+            <input name="passcode" type="password" autocomplete="current-password" required />
+          </label>
+          <button class="btn primary" type="submit">Connect</button>
+          <span id="sync-error" class="error small"></span>
+        </form>
+      </div>
+
       <form id="settings-form" class="panel form">
         <h2>Card details</h2>
         <label>Card name
@@ -118,19 +167,31 @@
             <input name="dueDays" type="number" min="1" max="60" required />
           </label>
         </div>
+        <label>Remind me this many days before the due date
+          <input name="reminderDays" type="number" min="0" max="20" />
+        </label>
         <label>Cardholders <span class="muted small">(comma-separated, e.g. principal and supplementary)</span>
           <input name="cardholders" placeholder="Me, Partner" />
         </label>
         <label>Categories <span class="muted small">(comma-separated)</span>
           <textarea name="categories" rows="3"></textarea>
         </label>
+        <h2>Monthly budgets per statement</h2>
+        <p class="muted small">Leave blank for no budget.</p>
+        <div id="budget-inputs" class="budget-grid"></div>
         <button class="btn primary" type="submit">Save settings</button>
         <span id="settings-saved" class="muted small"></span>
       </form>
 
       <div class="panel form">
+        <h2>Due-date reminders</h2>
+        <p class="muted small">Adds the next 12 BPI due dates to your phone's calendar, with alerts before each one. Re-download if you change your cut-off day.</p>
+        <button class="btn" id="calendar-btn">Add due dates to calendar</button>
+      </div>
+
+      <div class="panel form">
         <h2>Your data</h2>
-        <p class="muted small">Everything is stored only in this browser. Export a backup regularly, and use Import to move data to another device.</p>
+        <p class="muted small">Without household sync, data is stored only in this browser. Export a backup now and then.</p>
         <div class="btn-row">
           <button class="btn" id="export-json">Export backup (JSON)</button>
           <button class="btn" id="export-csv">Export transactions (CSV)</button>
@@ -147,6 +208,13 @@
   <dialog id="tx-dialog">
     <form id="tx-form" method="dialog" class="form">
       <h2 id="tx-dialog-title">Add transaction</h2>
+      <div class="scan-box" id="scan-box">
+        <div class="btn-row">
+          <label class="btn primary">📷 Take photo of receipt<input type="file" id="scan-camera" accept="image/*" capture="environment" hidden /></label>
+          <label class="btn">Choose photo<input type="file" id="scan-file" accept="image/*" hidden /></label>
+        </div>
+        <p id="scan-status" class="muted small">Or fill in the details yourself below.</p>
+      </div>
       <div class="seg" role="radiogroup" aria-label="Type">
         <label><input type="radio" name="type" value="purchase" checked /><span>Purchase</span></label>
         <label><input type="radio" name="type" value="payment" /><span>Payment</span></label>
@@ -200,6 +268,7 @@
     </form>
   </dialog>
 
+  <script src="shared/merge.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

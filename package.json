@@ -1,0 +1,9 @@
+{
+  "name": "pineda-cc-tracker",
+  "private": true,
+  "description": "The Pineda's Blessed CC Tracker",
+  "engines": { "node": ">=20" },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^1.10.0"
+  }
+}
